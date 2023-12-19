@@ -1,0 +1,4 @@
+"# BrantleyMC2011 provides plots of results, but not numerical values.  For these values, values had to be read from two plots and multiplied together.  The plot reading of each value might be something like 10% yielding a final uncertainty of something like 20%.",,,,,,,,,,,,,,,,,,
+,Case1-Frac0.05,Case1-Frac0.10,Case1-Frac0.15,Case1-Frac0.20,Case1-Frac0.25,Case1-Frac0.30,Case2-Frac0.05,Case2-Frac0.10,Case2-Frac0.15,Case2-Frac0.20,Case2-Frac0.25,Case2-Frac0.30,Case3-Frac0.05,Case3-Frac0.10,Case3-Frac0.15,Case3-Frac0.20,Case3-Frac0.25,Case3-Frac0.30
+Refl,0.37425,0.373,0.376,0.383146,0.390167,0.399194,0.34572,0.34204,0.34238,0.345058,0.3529305,0.363166,0.3417,0.334988,0.3399,0.332655,0.3368425,0.342705
+Trans,0.1224,0.030305,0.0071489,0.001712,0.00040736,0.00011935,0.1734,0.06864,0.02332,0.008667,0.0030576,0.0012089,0.2346,0.1275,0.06901,0.03392,0.0168,0.008528
