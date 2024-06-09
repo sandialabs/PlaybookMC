@@ -4,9 +4,6 @@ sys.path.append('/../../Core/Tools')
 from MonteCarloParticleSolverpy import MonteCarloParticleSolver
 from MarkovianInputspy import MarkovianInputs
 import numpy as np
-import operator
-import time
-import matplotlib.pyplot as plt
 import warnings
 
 ## \brief Solves radiation transport quantities on 1D slab using collection of special Monte Carlo drivers.
@@ -20,29 +17,49 @@ import warnings
 #   -Algorithm C
 #   -Conditional Point Sampling (CoPS).
 class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
-    def __init__(self):
+    # \param[in] NumParticlesPerSample int, default 1; number of particles per r.v. sample or batch; if ==1, tallies simplified
+    def __init__(self,NumParticlesPerSample=1):
         super(SpecialMonteCarloDrivers,self).__init__()
+        assert isinstance(NumParticlesPerSample,int) and NumParticlesPerSample>0
+        self.NumParticlesPerSample = NumParticlesPerSample
         
     def __str__(self):
         return str(self.__dict__)
 
-    ## \brief User sets recent memory and amnesia radius parameters for CoPS
+    ## \brief User sets recent memory, amnesia radius, and presampled point parameters for CoPS
+    #
+    # Presampled points can be used to create a partially defined cohort before starting the CoPS simulation.
+    # If flPreSampledOnly set to True, no new points will be added to long-term memory during the CoPS simulation
+    # and long-term memory lookups will make use of the regular point spacing to be faster.
     #
     # \param[in] recentMemory, int, number of points to store in recent memory
     # \param[in] amnesiaRadius, float, distance from remembered point in which to not commit new point to long-term memory
     # \param[in] flLongTermMemory, bool, whether or not long-term memory will be used
-    # \returns sets self.recentMemory and self.amnesiaRadius
-    def associateLimitedMemoryParam(self,recentMemory,amnesiaRadius,flLongTermMemory=True):
+    # \param[in] numpresampled, int, 0 or >=2, number of evenly spaced points to be sampled before the first history on each cohort
+    # \param[in] flPreSampledOnly, bool, default False, only allow presampled points for long-term memory (and leverage regular spacing to get speedier lookups)?
+    # \param[in] longTermMemoryMode, str 'on'; 'off','on','presampledonly'
+    # \returns sets various values to define limited-memory behavior
+    def associateLimitedMemoryParam(self,recentMemory,amnesiaRadius,numpresampled=0,longTermMemoryMode='on'):
         assert (isinstance(recentMemory,int) or recentMemory==np.inf) and recentMemory  >= 0
-        assert (isinstance(amnesiaRadius,float) and amnesiaRadius >= 0.0) or amnesiaRadius==None
-        assert isinstance(flLongTermMemory,bool)
-        if     flLongTermMemory and     amnesiaRadius==None: raise Exception("If long-term memory is enabled, a non-negative floating point value must be provided for the amnesia radius.")
-        if not flLongTermMemory and not amnesiaRadius==None: warnings.warn("A value was provided for the amnesiaRadius which will not be used since long-term memory was not enabled")
-
         self.recentMemory     = recentMemory
+        assert (isinstance(amnesiaRadius,float) and amnesiaRadius >= 0.0) or amnesiaRadius==None
         self.amnesiaRadius    = amnesiaRadius
-        self.flLongTermMemory = flLongTermMemory
-
+        assert isinstance(numpresampled,int) and (numpresampled==0 or numpresampled>=2)
+        self.numPreSampledPts = numpresampled
+        assert longTermMemoryMode in {'on','off','presampledonly'}
+        self.longTermMemoryMode = longTermMemoryMode
+        if longTermMemoryMode=='on'                       and     amnesiaRadius==None: raise Exception("If long-term memory is enabled, a non-negative floating point value must be provided for the amnesia radius.")
+        if longTermMemoryMode in {'off','presampledonly'} and not amnesiaRadius==None: warnings.warn("A value was provided for the amnesiaRadius which will not be used with selected long-term memory options")
+        if longTermMemoryMode=='presampledonly': assert(numpresampled>=2)
+        if longTermMemoryMode=='presampledonly':
+            self._findNearestLongTermPoint  = self._findNearestLongTermPoint_grid
+            self._findNearestLongTermPoints = self._findNearestLongTermPoints_grid
+            self._pointOnBothSides          = self._pointOnBothSides_grid
+        else                    :
+            self._findNearestLongTermPoint  = self._findNearestLongTermPoint_nogrid
+            self._findNearestLongTermPoints = self._findNearestLongTermPoints_nogrid
+            self._pointOnBothSides          = self._pointOnBothSides_nogrid
+        if self.fl3DEmulation and numpresampled>0: raise Exception("Dimensional emulation and presampled points cannot be used at the same time with CoPS")
 
     # \brief Defines Markovian geometry parameters
     #
@@ -73,6 +90,8 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
         # Assert slab length and store in object
         assert isinstance(slablength,float) and slablength>0.0
         self.SlabLength = slablength
+        self.xmin         = 0.0
+        self.xmax         = self.SlabLength
 
         # Solve and store material probabilities, mean chord length, and correlation length
         self.NaryType = NaryType
@@ -80,7 +99,25 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
         for i in range(0,self.nummats): assert isinstance(lam[i],float) and lam[i]>0.0
         self.solveNaryMarkovianParamsBasedOnChordLengths(lam)
         if self.NaryType == 'uniform': del[self.lamc] #lamc is meaningless for non-volume-fraction transition matrices. Note: refactor to handle non-volume-fraction transition matrices better is in order.
-        
+
+    ## \brief Chooses brute-force method and realization generation method
+    #
+    # Currently restricted to using standard tracker (as opposed to Woodcock tracker) method.
+    # Could be generalized to enable either.
+    #
+    # \param[in] realGenMethod, str, default 'sampleChords'; 'sampleChords' or 'samplePseduInterfaces' to choose Markovian realization generation method
+    # \param[in] abundanceModel, str, default 'ensemble'; use 'ensemble' or individual 'sample' material abundances to normalize material fraction in flux bins for material-dependent flux values
+    def chooseBruteForcesolver(self, realGenMethod = 'sampleChords', abundanceModel = 'ensemble' ):
+        self.GeomType = 'BruteForce'
+        self._initializeHistoryGeometryMemory = self._initializeGeometryMemory_pass
+        self._initializeSampleGeometryMemory  = self._initializeGeometryMemory_BruteForce
+        self.fPushParticle = self._pushMCParticle
+        assert realGenMethod in {'sampleChords','samplePseudoInterfaces'}
+        if   realGenMethod=='sampleChords'          : self.populateRealization = self.Slab.populateMarkovRealization
+        elif realGenMethod=='samplePseudoInterfaces': self.populateRealization = self.Slab.populateMarkovRealizationPseudo
+        assert abundanceModel in {'ensemble','sample'}
+        self.abundanceModel = abundanceModel
+
     ## \brief Chooses CLS method
     # 
     # 3-Dimensional Emulation allows for the material to change as a function of 
@@ -91,9 +128,13 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
     # \returns sets fl3DEmulation
     def chooseCLSsolver(self, fl3DEmulation = False):
         self.GeomType = 'CLS'
+        self._initializeHistoryGeometryMemory = self._initializeGeometryMemory_pass
+        self._initializeSampleGeometryMemory  = self._initializeGeometryMemory_pass
+        self.fPushParticle = self._pushCLSParticle
         assert isinstance(fl3DEmulation,bool)
         self.fl3DEmulation = fl3DEmulation
-        
+        self.abundanceModel = 'ensemble'
+
     ## \brief Chooses LRP method 
     # 
     # 3-Dimensional Emulation allows for the material to change as a function of 
@@ -104,80 +145,43 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
     # \returns sets fl3DEmulation
     def chooseLRPsolver(self, fl3DEmulation = False):
         self.GeomType = 'LRP'
+        self._initializeHistoryGeometryMemory = self._initializeGeometryMemory_pass
+        self._initializeSampleGeometryMemory  = self._initializeGeometryMemory_pass
+        self.fPushParticle = self._pushCLSParticle
         assert isinstance(fl3DEmulation,bool)
         self.fl3DEmulation = fl3DEmulation
+        self.abundanceModel = 'ensemble'
 
     ## \brief Chooses AlgC method 
     def chooseAlgCsolver(self):
         self.GeomType = 'AlgC'
+        self._initializeHistoryGeometryMemory = self._initializeGeometryMemory_pass
+        self._initializeSampleGeometryMemory  = self._initializeGeometryMemory_pass
+        self.fPushParticle = self._pushCLSParticle
         self.fl3DEmulation = False #3DEmulation not possible for AlgC
+        self.abundanceModel = 'ensemble'
         
     ## \brief Chooses CoPS method
     #
-    # Seeds can be used to create at least a realization family before starting the CoPS simulation.
-    # If an amnesia ratius of at least half the spacing of the seeds is used, no new points will
-    # be added to long-term memory during the CoPS simulation.
-    # 
     # 3-Dimensional Emulation allows for the material to change as a function of 
     # distance traveled by a particle on the flight path, even if not in x direction. It aims to 
     # provide 3D results while maintaining the efficiency of 1D transport. This option can only
     # be used when conditional on one the most recent point for CoPS.
     #
     # \param[in] numcondprobpts, int, amount of points to use for CPF calculation. p-1 in CoPS notation
-    # \param[in] numseeds, int, number of evenly spaced points to be sampled before the first history on each cohort
     # \param[in] fl3DEmulation, bool, default False, flag for 3-Dimensional Emulation
-    def chooseCoPSsolver(self, numcondprobpts, numseeds = 0, fl3DEmulation = False):
+    def chooseCoPSsolver(self, numcondprobpts, fl3DEmulation = False):
         self.GeomType = 'CoPS'
-        assert numcondprobpts == 0 or numcondprobpts == 1 or numcondprobpts == 2
-        assert isinstance(numseeds,int) and numseeds>=0
-        self.numCoPSSeeds = numseeds
+        self._initializeHistoryGeometryMemory = self._initializeHistoryGeometryMemory_CoPS
+        self._initializeSampleGeometryMemory  = self._initializeSampleGeometryMemory_CoPS
+        self.fPushParticle = self._pushCoPSParticle
         assert isinstance(fl3DEmulation,bool)
         if fl3DEmulation and numcondprobpts == 2:
             numcondprobpts = 1
             print('numcondprobpts changed to 1 in order to support 3DEmulation functionality')
-        if fl3DEmulation and numseeds>0: raise Exception("Dimentional emulation and seeds cannot be used at the same time with CoPS")
         self.numcondprobpts = numcondprobpts
         self.fl3DEmulation = fl3DEmulation  
-
-    ## \brief Is the main driver for 'pushing' particles for SMC solves.
-    #
-    # Makes some assertions to help ensure that options have been set to and
-    # that the code is ready for the user to push particles.
-    # Uses the chosen options and loops through the number of new particle histories,
-    # calling the appropriate method to 'push' each history.
-    #
-    # \param[in] NumNewParticles int, number of particles to solve and add to any previously solved
-    # \param[in] NumParticlesUpdateAt int, number of particles to print runtime updates at
-    # \param[in] flCompFluxQuants bool, default True, compute flux quantities, e.g., uncertainty and FOM?
-    # \param[in] initializeTallies str, default 'first_hist'; 'first_hist' or 'no_hist' behavior to initialize/reset leakage tallies
-    # \param[in] initializeGeomMem str, default 'each_hist'; 'first_hist', 'each_hist', or 'no_hist' behavior to initialize/reset CoPS memory (shared memory==cohort)
-    def pushParticles(self,NumNewParticles=None,NumParticlesUpdateAt=None,flCompFluxQuants=True,initializeTallies='first_hist',initializeGeomMem='each_hist'):
-        assert isinstance(NumNewParticles,int) and NumNewParticles>0
-        self.NumNewParticles = NumNewParticles
-        if not NumParticlesUpdateAt==None: assert isinstance(NumParticlesUpdateAt,int) and NumParticlesUpdateAt>0
-        self.NumParticlesUpdateAt = NumParticlesUpdateAt
-        if isinstance(self.NumParticlesUpdateAt,int): self.printTimeUpdate = self._printTimeUpdate
-        else                                        : self.printTimeUpdate = self._printNoTimeUpdate
-        assert isinstance(flCompFluxQuants,bool)
-        assert initializeTallies=='first_hist' or                                   initializeTallies=='no_hist'
-        assert initializeGeomMem=='first_hist' or initializeGeomMem=='each_hist' or initializeGeomMem=='no_hist'
-        if   self.GeomType == 'AlgC' and self.nummats>2: raise Exception("Current Algorithm C implementation only allows transport in binary stochastic media (i.e., cannot handle mixing of more than two material types)")
-        if   self.GeomType in {'CLS','LRP','AlgC'}: fPushParticle = self._pushCLSParticle
-        elif self.GeomType =='CoPS'               : fPushParticle = self._pushCoPSParticle
-        self.tstart = time.time()
-        if initializeTallies=='first_hist'                                  : self._initializeInternalTallies()
-        if initializeGeomMem=='first_hist' or initializeGeomMem=='each_hist': self._initializeGeometryMemory()
-        for ipart in range(self.NumOfParticles,self.NumOfParticles+self.NumNewParticles):
-            self._setRandomNumberSeed(ipart)
-            if self.flTally: self.FluxTalObj._setRandomNumberSeed(ipart)
-            if self.flTally: self.FluxTalObj._initializeHistoryTallies()
-            if initializeGeomMem=='each_hist': self._initializeGeometryMemory()
-            fPushParticle()
-            if self.flTally: self.FluxTalObj._foldHistoryTallies()
-            self.printTimeUpdate(ipart)
-        self.TotalTime      += time.time() - self.tstart
-        self.NumOfParticles += self.NumNewParticles
-        if self.flTally and flCompFluxQuants: self.FluxTalObj._computeFluxQuantities(self.TotalTime,self.NumOfParticles)
+        self.abundanceModel = 'ensemble'
 
     ## \brief Sample new distance to interface. Intent: private.
     #
@@ -238,45 +242,44 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
     # and tallies transmittance, reflectance, and absorption.
     def _pushCLSParticle(self):
         self.mu  = self._setParticleSourceAngle()
-        self.oldmu = self.mu
         x   = self._initializePosition()
         mat = int( self.Rng.choice( self.nummats, p=self.prob[:] ) ) #material designation
         if   self.GeomType=='LRP' : self.dip = self._newdi(mat); self.dim = self._newdi(mat)
         elif self.GeomType=='AlgC': self.dip = self._newdi(mat); self.dim = 0.0; self.dipp = self._newdi(self._changeMat(mat)); self.dimm = 0.0
         flbreak = False
         while True:
-            oldx = x; oldmat = mat; flcollide = False
+            oldx = x; self.oldmu = self.mu; oldmat = mat; flcollide = False
             #dist to interface, boundary, collision
-            if   self.GeomType=='CLS'                         : di = self._newdi(mat) 
+            if   self.GeomType=='CLS'                         : di = self._newdi(oldmat) 
             elif self.GeomType=='LRP' or self.GeomType=='AlgC': di = self.dip
             if   self.fl3DEmulation                           : di *= abs(self.mu) #di scaled to flight path rather than x-axis
             db = self.SlabLength - x if self.mu>0.0 else x
-            dc = -np.log( self.Rng.rand() ) / self.totxs[mat] * abs(self.mu)
+            dc = -np.log( self.Rng.rand() ) / self.totxs[oldmat] * abs(self.mu)
             #stream particle, choose collision or boundary crossing
             dist = min(di,db,dc)
             x = x + dist if self.mu>=0.0 else x - dist
             #evaluate collision or boundary crossing
             if   db == dist: #boundary
-                if   self.isclose(x,0.0)            : self.R+=1 
-                elif self.isclose(x,self.SlabLength): self.T+=1
+                if   self.isclose(x,0.0)            : self.Tals[-1]['Reflect'] +=1
+                elif self.isclose(x,self.SlabLength): self.Tals[-1]['Transmit']+=1
                 else                                : assert(False)
                 flbreak = True
             elif di == dist: #interface
-                 mat = self._changeMat(mat)
+                 mat = self._changeMat(oldmat)
                  if   self.GeomType=='LRP': #sample new interface for dip, set dim to 0
                      self.dip = self._newdi(mat); self.dim = 0.0
                  elif self.GeomType=='AlgC': #sample new interface for dipp, adjust all other stored interfaces as necessary
                      self.dimm = self.dim + self.dip; self.dim = 0.0; self.dip = self.dipp; self.dipp = self._newdi(self._changeMat(mat))
             else           : #collision
                 flcollide = True
-                if self.Rng.rand() > self.scatrat[mat]: self.A+=1; flbreak = True #absorb
+                if self.Rng.rand() > self.scatrat[oldmat]: self.Tals[-1]['Absorb']+=1; flbreak = True #absorb
                 else: #scatter
                     if self.GeomType in {'LRP','AlgC'}: self._incrementDistances(dist)
                     self.oldmu = self.mu   #store old mu, sample new, switch dim/dip if direction switched
                     self.mu = 2.0*self.Rng.rand()-1.0
                     if self.GeomType in {'LRP','AlgC'}: self._conditionallySwitchDistances()
             #tally flux
-            if self.flTally: self.FluxTalObj._tallyFlux(oldx=oldx,x=x,mu=self.oldmu,iseg=oldmat,collinfo=(flcollide,self.totxs[mat]) )
+            self._tallyFluxContribution(oldx,x,self.oldmu,oldmat,flcollide,self.totxs[oldmat])
             #if particle absorbed or leaked, kill history
             if flbreak: break
 
@@ -382,59 +385,51 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
         freq = np.exp(-r/self.lamc) if case == 'zero' else 1-np.exp(-r/self.lamc)
         return freq
 
-    ## \brief Samples cohort "seeds" on a regular grid
+    ## \brief Samples "presampled" points for a cohort
     #
-    # If only one seed, the seed is in the center of the domain.
-    # If two or more seeds, the seeds are regularly spaced with seeds on the edges
+    # If only one presampled point, it is in the center of the domain.
+    # If two or more, they are regularly spaced with points on the edges
     # of the domain (i.e., closed support).
     #
     # \returns initializes self.LongTermPoints, self.LongTermMatInds
-    def _sampleCoPSSeeds(self):
-        if  self.numCoPSSeeds == 1:
-            self.LongTermPoints.append(      self.SlabLength / 2                                    )
-            self.LongTermMatInds.append(     int(self.Rng.choice(self.nummats,p=self.prob[:]))      )
-        elif self.numCoPSSeeds > 1:
-            self.LongTermPoints.append(      0.0                                                    )
-            self.LongTermMatInds.append(     int(self.Rng.choice(self.nummats,p=self.prob[:]))      )
+    def _preSampleCoPSCohortPoints(self):
+        self.LongTermPoints.append(      0.0                                                    )
+        self.LongTermMatInds.append(     int(self.Rng.choice(self.nummats,p=self.prob[:]))      )
 
-            seedspacing = self.SlabLength / (self.numCoPSSeeds - 1)
-            
-            for i in range(1,self.numCoPSSeeds):
-                self.LongTermPoints.append(  self.LongTermPoints[-1] + seedspacing                  )
-                self._TwoPtCorrelation(          seedspacing , self.LongTermMatInds[-1]             )
-                self.LongTermMatInds.append( int(self.Rng.choice(self.nummats,p=self.condprobs[:])) )
+        self.presampledwidth = self.SlabLength / (self.numPreSampledPts - 1)
+        
+        for i in range(1,self.numPreSampledPts):
+            self.LongTermPoints.append(  self.LongTermPoints[-1] + self.presampledwidth         )
+            self._TwoPtCorrelation(      self.presampledwidth    , self.LongTermMatInds[-1]     )
+            self.LongTermMatInds.append( int(self.Rng.choice(self.nummats,p=self.condprobs[:])) )
 
 
-    ## \brief Initializes points and material indices--erases any memory
+    ## \brief Samples realization of stochastic media for use with the 'brute force' solver method
     #
-    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists,
-    # but convert to arrays using np.asarray(l) if needed to use array format
-    # "LongTerm" refers to storage of point location and material index until the end of a cohort
-    # "Recent" refers to storage of the N most recent points not committed to long term memory
-    #
-    # \returns initializes self.LongTermPoints, self.LongTermMatInds, self.RecentPoints, and self.RecentMatInds
-    def _initializeGeometryMemory(self):
-        if self.GeomType == "CoPS":
-            self.RecentPoints   = []; self.RecentMatInds = []
-            self.LongTermPoints = []; self.LongTermMatInds = []
-            if self.numCoPSSeeds > 0: self._sampleCoPSSeeds()
+    # \returns calls methods in OneDSlab to sample new Markovian stochastic media realization
+    def _initializeGeometryMemory_BruteForce(self):
+        self.populateRealization(totxs=self.totxs[:],lam=self.lam[:],s=self.SlabLength,scatxs=self.scatxs[:],NaryType=self.NaryType)
 
-    ## \brief Concatenates recent and long-term points and material indices for use in CoPS
+    ## \brief Initializes short-term points and material indices for CoPS (starts history)--erases memory
     #
-    # \returns sets self.MatPoints and self.MatInds
-    def _prepMatPoints_and_Inds(self):
-        self.MatPoints = self.RecentPoints  + self.LongTermPoints
-        self.MatInds   = self.RecentMatInds + self.LongTermMatInds
-   
+    # \returns initializes self.RecentPoints and self.RecentMatInds
+    def _initializeHistoryGeometryMemory_CoPS(self):
+        self.RecentPoints   = []; self.RecentMatInds = []
+
+    ## \brief Initializes long-term memory points and material indices for CoPS (starts cohort)--erases memory
+    #
+    # \returns initializes self.LongTermPoints and self.LongTermMatInds
+    def _initializeSampleGeometryMemory_CoPS(self):
+        self.LongTermPoints = []; self.LongTermMatInds = []
+        if self.numPreSampledPts > 0: self._preSampleCoPSCohortPoints()
+
     ## \brief Commits point locations and material indices to memory as user options dictate
     #
     # param[in] x, float, x position in realization
     # param[in] mat, int, material type at position x
-    # param[in] r, float, distance to nearest pre-stored point
     def _appendMatPoint(self,x,mat):
-        if self.flLongTermMemory:
-            r = min( list(map(abs, list( np.subtract(self.MatPoints,x) )))) if len(self.MatPoints)>0 else np.inf
-            if r > self.amnesiaRadius:
+        if self.longTermMemoryMode=='on':
+            if self.min_r > self.amnesiaRadius:
                 self.LongTermPoints.append(   x  )
                 self.LongTermMatInds.append( mat )
                 return
@@ -445,6 +440,143 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
                 del[ self.RecentPoints[ 0] ]
                 del[ self.RecentMatInds[0] ]
  
+
+    ## \brief Finds nearest point in recent memory to current location x
+    # 
+    # \param[out] r, float, distance to nearest point
+    # \param[out] mat, int, index of material type of nearest point
+    # \returns r, mat
+    def _findNearestRecentPoint(self):
+        if len(self.RecentPoints) > 0:
+            dists   = list(map(abs, list( np.subtract(self.RecentPoints,self.x) )))
+            index   = dists.index( min(dists) )
+            r       = dists[index] if not self.fl3DEmulation else dists[index]/abs(self.mu) #3DEmulation calculation handled here
+            mat     = self.RecentMatInds[index]
+            return r,mat
+        else:
+            return np.inf,-1
+        
+    ## \brief Finds nearest point in long-term memory to current location x using general search approach
+    # 
+    # \param[out] r, float, distance to nearest point
+    # \param[out] mat, int, index of material type of nearest point
+    # \returns r, mat, sets self.min_r (minimum radius to long-term point, to compare amnesia radius with)
+    def _findNearestLongTermPoint_nogrid(self):
+        if len(self.LongTermPoints) > 0:
+            dists   = list(map(abs, list( np.subtract(self.LongTermPoints,self.x) )))
+            index   = dists.index( min(dists) )
+            r       = dists[index] if not self.fl3DEmulation else dists[index]/abs(self.mu) #3DEmulation calculation handled here
+            mat     = self.LongTermMatInds[index]
+            self.min_r = r
+            return r,mat
+        else:
+            self.min_r = np.inf
+            return np.inf,-1
+
+    ## \brief Finds nearest point in long-term memory to current location x using grid-based search approach
+    #
+    # Note: With current options, long-term memory is only expected to be on a regular grid
+    # when using longTermMemoryMode == 'presampledonly'.
+    # 
+    # \param[out] r, float, distance to nearest point
+    # \param[out] mat, int, index of material type of nearest point
+    # \returns r, mat
+    def _findNearestLongTermPoint_grid(self):
+        index = int( np.round( self.x / self.presampledwidth ) )
+        r       = abs( self.x - self.LongTermPoints[index] )
+        mat     = self.LongTermMatInds[index]
+        return r,mat
+ 
+    ## \brief Finds nearest point in recent and long-term memory to current location x
+    # 
+    # \param[out] r, float, distance to nearest point
+    # \param[out] mat, int, index of material type of nearest point
+    # \returns r, mat
+    def _findNearestPoint(self):
+        pt_rec  = self._findNearestRecentPoint()
+        pt_long = self._findNearestLongTermPoint()
+        pt = pt_rec if pt_rec[0]<pt_long[0] else pt_long
+        return pt
+
+    ## \brief Returns whether there is at least one point in recent or long-term memory on each side of current point
+    #
+    # \returns bool
+    def _pointOnBothSides_nogrid(self):
+        pt_left  = min( self.LongTermPoints + self.RecentPoints )
+        pt_right = max( self.LongTermPoints + self.RecentPoints )
+        return True if pt_left<self.x and pt_right>self.x else False
+
+    ## \brief Returns that there are points on both sides of the current point since there always is with the grid feature
+    #
+    # \returns True
+    def _pointOnBothSides_grid(self):
+        return True
+
+    ## \brief Finds nearest point in recent memory on each side of current location x using general search approach
+    #
+    # \param[out] r1 and r2, float, distance to nearest point towards left and right
+    # \param[out] mat1 and mat2, int, index of material type of nearest point towards left and right
+    # \returns (r1, mat1), (r2, mat2), sets self.min_r (minimum radius to long-term point, to compare amnesia radius with)
+    def _findNearestRecentPoints(self):
+        if len(self.RecentPoints) > 0:
+            dists   = np.divide( 1.0, np.subtract(self.RecentPoints,self.x) )
+            indexL  = np.argmin(dists)
+            indexR  = np.argmax(dists)
+            r1    = abs( 1.0/dists[indexL] )
+            r2    = abs( 1.0/dists[indexR] )
+            mat1  = self.RecentMatInds[indexL]
+            mat2  = self.RecentMatInds[indexR]
+            self.min_r = min(r1,r2)
+            return (r1,mat1),(r2,mat2)
+        else:
+            self.min_r = np.inf
+            return (np.inf,-1),(np.inf,-1)
+        
+    ## \brief Finds nearest point in long-term memory on each side of current location x using general search approach
+    #
+    # \param[out] r1 and r2, float, distance to nearest point towards left and right
+    # \param[out] mat1 and mat2, int, index of material type of nearest point towards left and right
+    # \returns (r1, mat1), (r2, mat2)
+    def _findNearestLongTermPoints_nogrid(self):
+        if len(self.LongTermPoints) > 0:
+            dists   = np.divide( 1.0, np.subtract(self.LongTermPoints,self.x) )
+            indexL  = np.argmin(dists)
+            indexR  = np.argmax(dists)
+            r1    = abs( 1.0/dists[indexL] )
+            r2    = abs( 1.0/dists[indexR] )
+            mat1  = self.LongTermMatInds[indexL]
+            mat2  = self.LongTermMatInds[indexR]
+            return (r1,mat1),(r2,mat2)
+        else:
+            return (np.inf,-1),(np.inf,-1)
+
+    ## \brief Finds nearest point in long-term memory on each side of current location x using grid-based search approach
+    #
+    # Note: With current options, long-term memory is only expected to be on a regular grid
+    # when using longTermMemoryMode == 'presampledonly'.
+    # 
+    # \param[out] r1 and r2, float, distance to nearest point towards left and right
+    # \param[out] mat1 and mat2, int, index of material type of nearest point towards left and right
+    # \returns (r1, mat1), (r2, mat2)
+    def _findNearestLongTermPoints_grid(self):
+        indexL = int( np.floor( self.x / self.presampledwidth ) )
+        r1 = self.x - self.LongTermPoints[indexL]
+        r2 = self.LongTermPoints[indexL+1] - self.x
+        mat1  = self.LongTermMatInds[indexL]
+        mat2  = self.LongTermMatInds[indexL+1]
+        return (r1,mat1),(r2,mat2)
+
+    ## \brief Finds nearest point in long-term memory on each side of current location x
+    #
+    # \param[out] pt_left and pt_right, tuples, each tuple contains distance to nearest point to left or right and index of material type at that point
+    # \returns pt_left, pt_right
+    def _findNearestPoints(self):
+        pt_rec_left ,pt_rec_right  = self._findNearestRecentPoints()
+        pt_long_left,pt_long_right = self._findNearestLongTermPoints()
+        pt_left  = pt_rec_left  if pt_rec_left[0] <pt_long_left[0]  else pt_long_left
+        pt_right = pt_rec_right if pt_rec_right[0]<pt_long_right[0] else pt_long_right
+        return pt_left,pt_right
+
     ## \brief Simulates one particle using function-based Woodcock Monte Carlo solver. Intent: private.
     #
     # Simulates one particle history using geometry defined by a function which returns
@@ -452,67 +584,45 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
     # Currently uses normally incident beam source on left boundary and isotropic scattering
     # and tallies transmittance, reflectance, and absorption.
     def _pushCoPSParticle(self):
-        mu  = self._setParticleSourceAngle()
-        x   = self._initializePosition()
-        mat = None #if particle streams without colliding, this is needed to satisfy syntax
+        self.mu  = self._setParticleSourceAngle()
+        self.x   = self._initializePosition()
+        mat      = None #if particle streams without colliding, this is needed to satisfy syntax
         self.XSCeiling = max(self.totxs) #majorant total cross section
             
         flbreak = False
         while True:
+            oldx = self.x; oldmu = self.mu
             #solve distance to potential collision and distance to boundary
-            dpc = -np.log( self.Rng.rand() ) / self.XSCeiling * abs(mu)
-            db  = self.SlabLength-x if mu>0.0 else x
+            dpc = -np.log( self.Rng.rand() ) / self.XSCeiling * abs(self.mu)
+            db  = self.SlabLength-self.x if self.mu>0.0 else self.x
             #choose potential collision or boundary crossing
             if   self.isleq(abs(db),abs(dpc)): dx = db ; flpcollide = False
             else                             : dx = dpc; flpcollide = True
             #stream particle
-            x = x + dx if mu>=0.0 else x - dx
+            self.x = self.x + dx if self.mu>=0.0 else self.x - dx
             #if external boundary crossed, tally and terminate
-            if   self.isclose(x,0.0)            : self.R+=1.0; x = 0.0            ; flbreak = True
-            elif self.isclose(x,self.SlabLength): self.T+=1.0; x = self.SlabLength; flbreak = True
+            if   self.isclose(self.x,0.0)            : self.Tals[-1]['Reflect'] +=1; self.x = 0.0            ; flbreak = True
+            elif self.isclose(self.x,self.SlabLength): self.Tals[-1]['Transmit']+=1; self.x = self.SlabLength; flbreak = True
             
             #evaluate potential collision
             if flpcollide:
-                self._prepMatPoints_and_Inds()
-                if  self.MatPoints == []:
+                if  len(self.RecentPoints) + len(self.LongTermPoints) == 0: #     independent (no points for new point to be correlated to)
+                    self.min_r     = np.inf
                     self.condprobs = self.prob[:]
-                    r = np.inf
-                else:
-                    #2 pt correlation
-                    if self.numcondprobpts == 1:
-                        dists   = list(map(abs, list( np.subtract(self.MatPoints,x) )))
-                        index   = dists.index( min(dists) )
-                        r       = dists[index] if not self.fl3DEmulation else dists[index]/abs(mu) #3DEmulation calculation handled here
-                        mat     = self.MatInds[index]
-                        self._TwoPtCorrelation(r,mat)
-                    #3 pt correlation
-                    elif self.numcondprobpts == 2:
-                        dists   = list( np.divide( 1.0, np.subtract(self.MatPoints,x) ) )
-                        indexL  = dists.index( min(dists) )
-                        indexR  = dists.index( max(dists) )
-                        #point on both sides
-                        if dists[indexL]*dists[indexR] < 0.0:
-                            r1    = abs( 1.0/dists[indexL] )
-                            r2    = abs( 1.0/dists[indexR] )
-                            mat1  = self.MatInds[indexL]
-                            mat2  = self.MatInds[indexR]
-                            self._ThreePtCorrelation(r1,r2,mat1,mat2)
-                        #point on one side, dists is the reciprocal
-                        else:
-                            if abs(dists[indexL]) > abs(dists[indexR]): index = indexL
-                            else                                      : index = indexR
-                            r     = abs( 1.0/dists[index] )
-                            mat   = self.MatInds[index]
-                            self._TwoPtCorrelation(r,mat)
+                elif self.numcondprobpts == 2 and self._pointOnBothSides(): #3-pt correlation (and at least one point on each side of new point)
+                    (r1,mat1),(r2,mat2) = self._findNearestPoints()
+                    self._ThreePtCorrelation(r1,r2,mat1,mat2)
+                else                                                      : #2-pt correlation (new point correlated to nearest point)
+                    r,mat = self._findNearestPoint()
+                    self._TwoPtCorrelation(r,mat)
                 #determine material
                 mat = self.Rng.choice(self.nummats,p=self.condprobs[:])
-                self._appendMatPoint(x,mat)
+                self._appendMatPoint(self.x,mat)
                 #if distance to potential collision is chosen, determine if real collision
                 if self.Rng.rand() <= self.totxs[mat]/self.XSCeiling: #accepted collision
-                    if self.Rng.rand() > self.scatrat[mat]: self.A+=1.0; flbreak = True  #absorb
-                    else                                  : mu = 2.0*self.Rng.rand()-1.0                #scatter      
+                    if self.Rng.rand() > self.scatrat[mat]: self.Tals[-1]['Absorb']+=1; flbreak = True  #absorb
+                    else                                  : self.mu = 2.0*self.Rng.rand()-1.0           #scatter      
             #tally flux
-            oldx = x; oldmu = mu;
-            if self.flTally: self.FluxTalObj._tallyFlux(oldx=oldx,x=x,mu=oldmu,iseg=mat,collinfo=(flpcollide,self.XSCeiling) )
+            self._tallyFluxContribution(oldx,self.x,oldmu,mat,flpcollide,self.XSCeiling)
             #if particle absorbed or leaked, kill history
             if flbreak: break

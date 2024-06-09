@@ -17,7 +17,6 @@ import sys
 sys.path.append('../../Core/Benchmarks')
 import RandCoefsBoundsBenchModule as Bench
 import numpy as np
-import pandas as pd
 
 #Define total cross sections, material boundaries, and the magnitude of their uniformly distributed variability
 TotXSAves      = [0.9, 0.15, 0.6]

@@ -2,8 +2,6 @@
 import sys
 from Geometry_Basepy import Geometry_Base
 sys.path.append('/../../Classes/Tools')
-from RandomNumberspy import RandomNumbers
-from Particlepy import Particle
 from ClassToolspy import ClassTools
 from MarkovianInputspy import MarkovianInputs
 import numpy as np
@@ -23,10 +21,30 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
         self.flshowplot = False; self.flsaveplot = False
         self.flCollectPoints = False
         self.GeomType = 'CoPS'
+        self.abundanceModel = 'ensemble'
 
     def __str__(self):
         return str(self.__dict__)
         
+    ## \brief Initializes short-term points and material indices for CoPS (starts history)--erases memory
+    #
+    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists,
+    # but convert to arrays using np.asarray(l) if needed to use array format
+    #
+    # \returns initializes self.RecentPoints and self.RecentMatInds
+    def _initializeHistoryGeometryMemory(self):
+        self.RecentPoints    = []
+        self.RecentMatInds   = []
+
+    ## \brief Initializes long-term memory points and material indices for CoPS (starts cohort)--erases memory
+    #
+    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists,
+    # but convert to arrays using np.asarray(l) if needed to use array format
+    #
+    # \returns initializes self.LongTermPoints and self.LongTermMatInds
+    def _initializeSampleGeometryMemory(self):
+        self.LongTermPoints  = []
+        self.LongTermMatInds = []
 
     ## \brief Defines mixing parameters (chord lengths and probabilities)
     #
@@ -40,20 +58,6 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
 
         # Solve and store material probabilities and correlation length
         self.solveNaryMarkovianParamsBasedOnChordLengths(self.lam)
-
-    ## \brief Initializes points and material indices--erases any memory
-    #
-    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists,
-    # but convert to arrays using np.asarray(l) if needed to use array format
-    # "LongTerm" refers to storage of point location and material index until the end of a cohort
-    # "Recent" refers to storage of the N most recent points not committed to long term memory
-    #
-    # \returns initializes self.LongTermPoints, self.LongTermMatInds, self.RecentPoints, and self.RecentMatInds
-    def initializeGeometryMemory(self):
-        self.LongTermPoints  = []
-        self.LongTermMatInds = []
-        self.RecentPoints    = []
-        self.RecentMatInds   = []
 
     ## \brief Samples material index of new point, and stores or forgets new point, according to selected rules
     #
@@ -465,24 +469,3 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
         if self.flCollectPoints:
             assert isinstance(pointsNpyFileName,str)
             self.pointsNpyFileName = pointsNpyFileName
-
-    ## \brief Collect CoPS output points and store in accumulating list
-    #
-    # \param[in] ipart int, Particle number (same as realization number so far)
-    # \returns creates or contributes to master list of points self.OldPointData
-    def appendNewPointsToCollection(self,ipart):
-        if len(self.LongTermMatInds)>0:
-            #Create array of particle number, combine particle number, material indices, and x, y, z coordinates into one array
-            NewPointData = np.concatenate( ( np.stack( (np.full(len(self.LongTermMatInds),ipart), np.array(self.LongTermMatInds)),  axis=-1 ) , np.array(self.LongTermPoints) ) , axis=1)
-            #Add to master list of points defined in all realizations (or create that list)
-            if hasattr(self,'OldPointData'): self.OldPointData = np.concatenate( (self.OldPointData,NewPointData), axis=0)
-            else                           : self.OldPointData = NewPointData
-
-
-    ## \brief If flag set to collect points, print collected points to npy file
-    #
-    # \returns prints data to file
-    def printCollectedPointsToNumpyFile(self):
-        if self.flCollectPoints: np.save( self.pointsNpyFileName , self.OldPointData )
-
-

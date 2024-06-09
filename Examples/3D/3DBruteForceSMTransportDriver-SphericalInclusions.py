@@ -1,35 +1,33 @@
 #!usr/bin/env python
 ## \file 3DBruteForceSMTransportDriver-SphericalInclusions.py
-#  \brief Example driver script for multi-D transport with tesselation geometries (currently must have one history per realization).
+#  \brief Example driver script for multi-D transport with spherical-inclusion geometries.
 #  \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
+#  \author Dan Bolintineanu, dsbolin@sandia.gov
 import sys
 sys.path.append('../../Core/Tools')
 from RandomNumberspy import RandomNumbers
 from SphericalInclusionInputspy import SphericalInclusionInputs
-from FluxTalliespy import FluxTallies
 sys.path.append('../../Counterparts/BrantleyMC2011')
 sys.path.append('../../Counterparts/BrantleyANS2014')
 sys.path.append('../../Core/3D')
 from MonteCarloParticleSolverpy import MonteCarloParticleSolver
 from Particlepy import Particle
 from Geometry_SphericalInclusionpy import Geometry_SphericalInclusion
-import numpy as np
 import pandas as pd
-
-# plot 3D
-# return volume fractions
-
-# voxelize via the base geometry - print voxels to file, sample point for transport based on voxels 
+import os
 
 #Prepare inputs
-numparticles  = 100
+numparticles  = 200
 numpartupdat  = 10
+numpartsample = 10   #number of particle histories per realization
+numpartitions = 5    #number of partitions of samples - used to provide r.v. statistical precision
 raddist       = 'Constant' #'Constant', 'Uniform', 'Exponential'
 Geomsize      = 10.0
 case          = '2'        #'1','2','3'; case number from BrantleyMC2011 and BrantleyANS2014
 volfrac       = '0.05'     #'0.05','0.10','0.15','0.20','0.25','0.30'; volume fraction of spheres as a string
-
-flfluxtallies = False
+sphSampleModel= 'NoGrid'   #'NoGrid', 'GenericGrid', or 'FastRSA'
+abundanceModel= 'ensemble' #'ensemble' or 'sample'
+numtalbins    = 20
 
 #Load problem parameters
 CaseInp = SphericalInclusionInputs()
@@ -53,38 +51,21 @@ Part.defineScatteringType(scatteringtype='isotropic')
 Part.associateRng(Rng)
 
 #Setup geometry
-Geom = Geometry_SphericalInclusion(flVerbose=False)
+Geom = Geometry_SphericalInclusion(flVerbose=False,abundanceModel=abundanceModel)
 Geom.associateRng(Rng)
 Geom.associatePart(Part)
 Geom.defineGeometryBoundaries(xbounds=[-Geomsize/2,Geomsize/2],ybounds=[-Geomsize/2,Geomsize/2],zbounds=[-Geomsize/2,Geomsize/2])
 Geom.defineBoundaryConditions(xBCs=['reflective','reflective'],yBCs=['reflective','reflective'],zBCs=['vacuum','vacuum'])
 Geom.defineCrossSections(totxs=CaseInp.Sigt[:],scatxs=CaseInp.Sigs[:])
-
-Geom.defineMixingParams(sphereFrac=CaseInp.sphereFrac,radMin=CaseInp.radMin,radAve=CaseInp.radAve,radMax=CaseInp.radMax,sizeDistribution=CaseInp.sizeDistribution,matSphProbs=CaseInp.matSphProbs,matMatrix=CaseInp.matMatrix)
-Geom.initializeGeometryMemory()
+Geom.defineMixingParams(sphereFrac=CaseInp.sphereFrac,radMin=CaseInp.radMin,radAve=CaseInp.radAve,radMax=CaseInp.radMax,sizeDistribution=CaseInp.sizeDistribution,matSphProbs=CaseInp.matSphProbs,matMatrix=CaseInp.matMatrix,xperiodic=False,yperiodic=False,zperiodic=False)
+Geom.defineGeometryGenerationParams(maxPlacementAttempts=10000, sphSampleModel=sphSampleModel, gridSize=None)
 
 #Instantiate and associate the general Monte Carlo particle solver
-NDMC = MonteCarloParticleSolver()
+NDMC = MonteCarloParticleSolver(numpartsample)
 NDMC.associateRng(Rng)
 NDMC.associatePart(Part)
 NDMC.associateGeom(Geom)
-
-## If selected, instantiate and associate flux tally object
-if flfluxtallies:
-    FTal = FluxTallies()
-    FTal.setFluxTallyOptions(numMomsToTally=2)
-    FTal.defineSMCGeometry(slablength=Geom.zbounds[1]-Geom.zbounds[0],xmin=Geom.zbounds[0])
-    NDMC.associateFluxTallyObject(FTal)
-    FTal.setupFluxTallies(numTallyBins=100,flMaterialDependent=True,numMaterials=Geom.nummats)
-    if FTal.flMaterialDependent:
-        FTal.defineFluxTallyMethod( FTal._tallyMaterialBasedCollisionFlux )
-        FTal.defineMaterialTypeMethod( FTal._return_iseg_AsMaterialType )
-        matfractions = np.ones((Geom.nummats,FTal.numTallyBins))
-        for imat in range(0,Geom.nummats):
-            matfractions[imat,:] = np.multiply(matfractions[imat,:],Geom.prob[imat])
-        FTal.defineMaterialTypeFractions( matfractions )
-    else                  :
-        FTal.defineFluxTallyMethod( FTal._tallyCollisionFlux )
+NDMC.selectFluxTallyOptions(numFluxBins=numtalbins,fluxTallyType='Collision')
 
 #Run particle histories
 NDMC.pushParticles(NumNewParticles=numparticles,NumParticlesUpdateAt=numpartupdat)
@@ -96,20 +77,18 @@ elif raddist=="Exponential": print("\n--BrantleyANS2014 values (read from plot, 
 print("Transmittance            :  ",Brant['Case'+case+'-Frac'+volfrac]['Trans'])
 print("Reflectance              :  ",Brant['Case'+case+'-Frac'+volfrac]['Refl'],'\n')
 
-if   raddist=="Constant"   : Brant = pd.read_csv('../../Counterparts/BrantleyMC2011/BrantleyMC2011_Spheres_Constant.csv',index_col=0,skiprows=1,encoding='unicode_escape')
-elif raddist=="Uniform"    : Brant = pd.read_csv('../../Counterparts/BrantleyMC2011/BrantleyMC2011_Spheres_Uniform.csv',index_col=0,skiprows=1,encoding='unicode_escape')
-elif raddist=="Exponential": Brant = pd.read_csv('../../Counterparts/BrantleyANS2014/BrantleyANS2014_Spheres_Exponential.csv',index_col=0,skiprows=1,encoding='unicode_escape')
-
-
 #Compute tallies, return values from function and print to screen
-tmean,tdev,tSEM,tFOM = NDMC.returnTransmittanceMoments(flVerbose=True)
-rmean,rdev,rSEM,rFOM = NDMC.returnReflectanceMoments(flVerbose=True)
-amean,adev,aSEM,aFOM = NDMC.returnAbsorptionMoments(flVerbose=True)
-smean,sdev,sSEM,sFOM = NDMC.returnSideLeakageMoments(flVerbose=True)
-fmean,fdev,fSEM,fFOM = NDMC.returnFluxMoments(flVerbose=True)
+NDMC.processSimulationFluxTallies()
+tmean,tdev,tmeanSEM,tdevSEM = NDMC.returnTransmittanceMoments(flVerbose=True,NumStatPartitions=numpartitions)
+rmean,rdev,rmeanSEM,rdevSEM = NDMC.returnReflectanceMoments(flVerbose=True,NumStatPartitions=numpartitions)
+amean,adev,ameanSEM,adevSEM = NDMC.returnAbsorptionMoments(flVerbose=True,NumStatPartitions=numpartitions)
+smean,sdev,smeanSEM,sdevSEM = NDMC.returnSideLeakageMoments(flVerbose=True,NumStatPartitions=numpartitions)
+fmean,fdev,fmeanSEM,fdevSEM = NDMC.returnWholeDomainFluxMoments(flVerbose=True,NumStatPartitions=numpartitions)
+print()
+NDMC.returnTransmittanceRuntimeAnalysis(flVerbose=True,NumStatPartitions=numpartitions)
+NDMC.returnReflectanceRuntimeAnalysis(flVerbose=True,NumStatPartitions=numpartitions)
+NDMC.returnAbsorptionRuntimeAnalysis(flVerbose=True,NumStatPartitions=numpartitions)
+print()
+NDMC.returnRuntimeValues(flVerbose=True)
 
-#If selected, print, read, and plot flux tallies (currently must print and read to plot, refactor to not require printing and reading to plot desired)
-if flfluxtallies:
-    FTal.printFluxVals(filename='3DSpheresFlux',flFOMs=True)
-    FTal.readFluxVals( filename='3DSpheresFlux')
-    FTal.plotFlux(flMaterialDependent=True)
+#NDMC.plotFlux(flMaterialDependent=True)

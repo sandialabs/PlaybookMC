@@ -21,10 +21,26 @@ class Geometry_Voronoi(Geometry_Base):
         self.seedsKDTree = None
         self.flshowplot = False; self.flsaveplot = False
         self.GeomType = 'Voronoi'
+        self.abundanceModel = 'ensemble'
     
     def __str__(self):
         return str(self.__dict__)
         
+
+    ## \brief Some geometries will need to overwrite this method definition, others won't.
+    #
+    # \returns nothing
+    def _initializeHistoryGeometryMemory(self):
+        pass
+
+    ## \brief Initializes points and material indices and samples seed location
+    #
+    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
+    #
+    # \returns initializes self.SeedLocations and self.SeedMatIndices 
+    def _initializeSampleGeometryMemory(self):
+        self._sampleNumberOfSeeds()
+        self._sampleSeedLocations()
 
     ## \brief Defines mixing parameters (correlation length and material probabilities)
     # Note: laminf and rhoV notation and formula following LarmierJQSRT2017 different mixing types paper
@@ -43,16 +59,6 @@ class Geometry_Voronoi(Geometry_Base):
         self.rhoV   = 4.0 / (256.0*np.pi/3.0)**(1.0/3.0) / gamma(5.0/3.0) / self.laminf
 
         
-    ## \brief Initializes points and material indices and samples seed location
-    #
-    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
-    #
-    # \returns initializes self.SeedLocations and self.SeedMatIndices 
-    def initializeGeometryMemory(self):
-        self._sampleNumberOfSeeds()
-        self._sampleSeedLocations()
-    
-
     ## \brief compute average number of seeds
     #
     # \param[in] 

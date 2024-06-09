@@ -1,10 +1,9 @@
 #!usr/bin/env python
 import sys
 sys.path.append('/../../Classes/Tools')
-from ClassToolspy import ClassTools
+from Talliespy import Tallies
 import numpy as np
 import time
-import matplotlib.pyplot as plt
 
 ## \brief Solves radiation transport quantities on 1D slab using MC method.
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
@@ -12,10 +11,14 @@ import matplotlib.pyplot as plt
 # Class for performing Monte Carlo particle transport.
 # Class can perform Monte Carlo on a slab with defined material boundaries
 # or using Woodcock Monte Carlo.
-class MonteCarloParticleSolver(ClassTools):
-    def __init__(self):
+class MonteCarloParticleSolver(Tallies):
+    # \param[in] NumParticlesPerSample int, default 1; number of particles per r.v. sample or batch; if ==1, tallies simplified
+    def __init__(self,NumParticlesPerSample=1):
         super(MonteCarloParticleSolver,self).__init__()
-        self.flTally             = False
+        assert isinstance(NumParticlesPerSample,int) and NumParticlesPerSample>0
+        self.NumParticlesPerSample = NumParticlesPerSample
+        self.NumOfParticles = 0
+        self.flTally        = False
 
     def __str__(self):
         return str(self.__dict__)
@@ -50,70 +53,43 @@ class MonteCarloParticleSolver(ClassTools):
         
     ## \brief Sets a link to instantiation of OneDSlab
     #
-    # Links geometry to object and chooses either public or semi-private version of 'samplePoint'.
-    # Could be generalized to accept other functions, but is not at this time.
+    # \param[in] slab object, instantiation of OneDSlabGeometry
+    def defineMCGeometry(self,slab):
+        self.GeomType      = 'MC'
+        self._initializeHistoryGeometryMemory = self._initializeGeometryMemory_pass
+        self._initializeSampleGeometryMemory  = self._initializeGeometryMemory_pass
+        self.fPushParticle = self._pushMCParticle
+        self.Slab          = slab
+        self.XSFunction    = self.Slab.samplePoint_x
+        self.SlabLength    = self.Slab.s
+        self.xmin          = 0.0
+        self.xmax          = self.SlabLength
+        self.nummats       = self.Slab.nummats
+        self.abundanceModel= 'sample'
+
+
+    ## \brief Sets a link to instantiation of OneDSlab
     #
     # \param[in] slab object, instantiation of OneDSlabGeometry
-    def defineMCGeometry(self,slab,slablength=None):
-        self.Slab = slab
-        assert callable(self.Slab.samplePoint_x) and callable(self.Slab.samplePoint_iseg)
-        self.XSFunction   = self.Slab.samplePoint_x
-        assert isinstance(slablength,float) and slablength>0.0
-        self.SlabLength   = slablength
-        self.GeomType     = 'MC'
+    def defineWMCGeometry(self,slab):
+        self.GeomType      = 'WMC'
+        self._initializeHistoryGeometryMemory = self._initializeGeometryMemory_pass
+        self._initializeSampleGeometryMemory  = self._initializeGeometryMemory_pass
+        self.fPushParticle = self._pushWMCParticle
+        self.Slab          = slab
+        self.XSFunction    = self.Slab.samplePoint_x
+        self.SlabLength    = self.Slab.s
+        self.xmin          = 0.0
+        self.xmax          = self.SlabLength
+        self.nummats       = self.Slab.nummats
+        self.Majorant      = max(self.Slab.totxs)
+        self.abundanceModel= 'sample'
 
-    ## \brief Define a parameters needed for Woodcock Monte Carlo (WMC) transport.
+    ## \brief Fulfills the syntax of initializing geometry memory when nothing needs initialized
     #
-    # Defines a WMC total cross section ceiling, cross section function, and the arguments
-    # needed to call the function.  The ceiling must be as large as or larger than the largest
-    # total cross section which can be called using the function.  The function must be able to
-    # return values for cross section types 'total', 'scatter', 'absorb', and 'scatrat', and
-    # these values must be consistant with their meanings (at least at x=0.0).  The parameters
-    # passed must pass some tests including calling the function for each cross section type at x=0.0.
-    #
-    # \param[in] ceiling float, ceiling value for WMC transport
-    # \param[in] xsfunction CallableObject, function that returns cross section values at locations 'x'
-    # \param     args arguments needed in xsfunction, e.g., (RealizationNumber,NumOfEigModes)
-    def defineWMCGeometry(self,xsceiling=None,xsfunction=None,slablength=None,*args):
-        #Make assertions on input, then make ceiling, function, and args pass some basic tests.
-        assert isinstance(xsceiling,float) and xsceiling>0.0
-        assert callable(xsfunction)
-        assert isinstance(slablength,float) and slablength>0.0
-        try:    totalxs  = xsfunction(0.0,'total',args)
-        except: print('WMCGeometry function fail to call total cross section value'); raise
-        try:    scatterxs = xsfunction(0.0,'scatter',args)
-        except: print('WMCGeometry function fail to call scattering cross section value'); raise
-        try:    absorbxs  = xsfunction(0.0,'absorb',args)
-        except: print('WMCGeometry function fail to call absorption cross section value'); raise
-        try:    scatrat   = xsfunction(0.0,'scatrat',args)
-        except: print('WMCGeometry function fail to call scattering ratio value'); raise
-        assert totalxs<=xsceiling
-        assert scatterxs<=totalxs
-        assert absorbxs<=totalxs and absorbxs+scatterxs==totalxs
-        eps = 0.0000000001
-        if not totalxs==0.0: assert scatterxs/totalxs<scatrat+eps and scatterxs/totalxs>scatrat-eps
-        #Store function and parameters as attributes
-        self.XSCeiling    = xsceiling
-        self.XSFunction   = xsfunction
-        self.SlabLength   = slablength
-        self.args         = args
-        self.GeomType     = 'WMC'
-
-    ## \brief Associates FluxTallyObject with MC solver object for taking tallies.
-    #
-    # The two objects are associated in that the MC solver object can
-    # call functions in the FluxTalObj, and the FluxTalObj can be called
-    # independently--both will operate on the same object.
-    #
-    # Function also sets flag indicating to use flux tallies.  Maybe use
-    # of this flag can be overwritten by a test for a FluxTalObj.
-    #
-    # \param[in] FluxTallyObject 'FluxTallies' object, instantiated flux tally object from PBMC
-    # \returns sets object to self.FluxTalObj, sets self.flTally to True
-    def associateFluxTallyObject(self,FluxTallyObject):
-        self.FluxTalObj = FluxTallyObject
-        self.flTally = True
-
+    # \returns nothing
+    def _initializeGeometryMemory_pass(self):
+        pass
 
     ## \brief Initializes internal random number object.
     #
@@ -138,17 +114,6 @@ class MonteCarloParticleSolver(ClassTools):
         self.Stride    = stride
         self.Rng       = np.random.RandomState()
 
-
-    ## \brief Initializes/resets tally of particles simulated, total time, and leakage tallies.
-    #
-    # \param sets self.NumOfParticles, self.TotalTime, self.T, self.R, and self.A to 0
-    def _initializeInternalTallies(self):
-        self.NumOfParticles = 0
-        self.TotalTime      = 0.0
-        self.T              = 0
-        self.R              = 0
-        self.A              = 0
-
     ## \brief If chosen, initializes random number seed before each history. Intent: private.
     #
     # Is called at beginning of each particle history.  If user chose to use seeds,
@@ -160,41 +125,59 @@ class MonteCarloParticleSolver(ClassTools):
         if self.flUseSeed: self.Rng.seed( self.Seed + self.Stride * ipart )
 
 
-    ## \brief Is the main driver for 'pushing' particles for MC or WMC solve.
+    ## \brief Is the main driver for 'pushing' particles for MC Particle solver and SMC solvers.
     #
-    # Makes some assertions to help ensure that options have been set to and
-    # that the code is ready for the user to push particles.
-    # Uses the chosen options and loops through the number of new particle histories,
-    # calling the appropriate method to 'push' each history.
+    # Primary driver for particles in MonteCarloParticleSolverpy.py and SpecialMonteCarloDriverspy.py
+    # (where the latter contains capabilities for stochastic media transport).
     #
     # \param[in] NumNewParticles int, number of particles to solve and add to any previously solved
     # \param[in] NumParticlesUpdateAt int, number of particles to print runtime updates at
-    # \param flCompFluxQuants bool, default True, compute flux quantities, e.g., uncertainty and FOM?
-    # \param[in] initializeTallies str, default 'first_hist'; 'first_hist' or 'no_hist' behavior to initialize/reset leakage tallies
-    def pushParticles(self,NumNewParticles=None,NumParticlesUpdateAt=None,flCompFluxQuants=True,initializeTallies='first_hist'):
+    # \param[in] flCompFluxQuants bool, default True, compute flux quantities, e.g., uncertainty and FOM?
+    def pushParticles(self,NumNewParticles=None,NumParticlesUpdateAt=None,flCompFluxQuants=True):
         assert isinstance(NumNewParticles,int) and NumNewParticles>0
         self.NumNewParticles = NumNewParticles
         if not NumParticlesUpdateAt==None: assert isinstance(NumParticlesUpdateAt,int) and NumParticlesUpdateAt>0
         self.NumParticlesUpdateAt = NumParticlesUpdateAt
         if isinstance(self.NumParticlesUpdateAt,int): self.printTimeUpdate = self._printTimeUpdate
         else                                        : self.printTimeUpdate = self._printNoTimeUpdate
-        assert callable(self.XSFunction)
         assert isinstance(flCompFluxQuants,bool)
-        assert initializeTallies=='first_hist' or initializeTallies=='no_hist'
-        if   self.GeomType=='MC' : fPushParticle = self._pushMCParticle
-        elif self.GeomType=='WMC': fPushParticle = self._pushWMCParticle
+        if   self.GeomType == 'AlgC' and self.nummats>2: raise Exception("Current Algorithm C implementation only allows transport in binary stochastic media (i.e., cannot handle mixing of more than two material types)")
+
         self.tstart = time.time()
-        if initializeTallies=='first_hist': self._initializeInternalTallies()
         for ipart in range(self.NumOfParticles,self.NumOfParticles+self.NumNewParticles):
             self._setRandomNumberSeed(ipart)
-            if self.flTally: self.FluxTalObj._setRandomNumberSeed(ipart)
-            if self.flTally: self.FluxTalObj._initializeHistoryTallies()
-            fPushParticle()
-            if self.flTally: self.FluxTalObj._foldHistoryTallies()
+            #setup sample
+            flStartSample = True if  ipart   %self.NumParticlesPerSample==0 else False #First history in a sample?
+            if flStartSample:
+                tstart_samp_setup = time.time()
+                if self.NumParticlesPerSample>1 or ipart==0:
+                    self._initializeSampleTallies() #start of sample (or samples if 1 hist/sample)
+                self._initializeSampleGeometryMemory()
+                #solve material fractions for geometry
+                if   self.abundanceModel == 'ensemble': #SM material fractions are assumed atomic mix in each flux bin
+                    self.Tals[-1]['SampleMatAbundance'] = np.repeat( np.transpose([self.prob]), self.numFluxBins, axis=1)
+                elif self.abundanceModel == 'sample':   #SM material fractions solved for each sample and used in material-dependent flux tallies
+                    self.Slab.solveMaterialTypeFractions(numbins=self.numFluxBins)
+                    self.Tals[-1]['SampleMatAbundance'] = self.Slab.MatFractions
+                tend_samp_setup   = time.time()
+            #setup history
+            self._initializeHistoryGeometryMemory()
+            self._initializeHistoryFluxTallies()
+            #simulate history
+            self.fPushParticle()
+            #postprocess history
+            self._contribHistTalsToSampTals()
             self.printTimeUpdate(ipart)
+            #postprocess sample
+            flEndSample   = True if (ipart+1)%self.NumParticlesPerSample==0 else False #Last history in a sample?
+            if flEndSample:
+                tend_hists        = time.time()
+                if self.NumParticlesPerSample>1: self._processSampleFluxTallies()
+                tend_process_samp = time.time()
+                self.Tals[-1]['SampleTime'] += tend_samp_setup - tstart_samp_setup + tend_process_samp - tend_hists
+                self.Tals[-1]['MCTime']     += tend_hists      - tend_samp_setup
         self.TotalTime      += time.time() - self.tstart
         self.NumOfParticles += self.NumNewParticles
-        if self.flTally and flCompFluxQuants: self.FluxTalObj._computeFluxQuantities(self.TotalTime,self.NumOfParticles)
 
     ## \brief Dummy time update method. Intent: private.
     #
@@ -254,20 +237,20 @@ class MonteCarloParticleSolver(ClassTools):
             #evaluate collision or boundary crossing
             if flcollide:  #evaluate collision
                 if self.Rng.rand()> self.Slab.samplePoint_iseg(iseg,'scatrat'):
-                    self.A+=1; flbreak = True    #absorb
+                    self.Tals[-1]['Absorb'] +=1; flbreak = True    #absorb
                 else                                                          :
                     mu = 2.0*self.Rng.rand()-1.0 #scatter
             else        :  #evaluate boundary crossing
                 if mu<0.0:
-                    if iseg==0                       : self.R+=1; flbreak = True #tally R
+                    if iseg==0                       : self.Tals[-1]['Reflect'] +=1; flbreak = True #tally R
                     x = self.Slab.matbound[iseg]
                     iseg -= 1
                 else     :
-                    if iseg==len(self.Slab.mattype)-1: self.T+=1; flbreak = True #tally T
+                    if iseg==len(self.Slab.mattype)-1: self.Tals[-1]['Transmit']+=1; flbreak = True #tally T
                     iseg += 1
                     x = self.Slab.matbound[iseg]
             #tally flux
-            if self.flTally: self.FluxTalObj._tallyFlux( oldx,x,oldmu,oldiseg,collinfo=(flcollide,totxs) )
+            self._tallyFluxContribution(oldx,x,oldmu,self.Slab.mattype[oldiseg],flcollide,totxs)
             #if particle absorbed or leaked, kill history
             if flbreak: break
 
@@ -285,7 +268,7 @@ class MonteCarloParticleSolver(ClassTools):
         while True:
             oldx = x; oldmu = mu
             #solve distance to potential collision
-            dpc= -np.log( self.Rng.rand() ) / self.XSCeiling * mu
+            dpc= -np.log( self.Rng.rand() ) / self.Majorant * mu
             #solve distance to boundary
             db = self.SlabLength-x if mu>=0.0 else -x
             #choose potential collision or boundary crossing
@@ -295,64 +278,18 @@ class MonteCarloParticleSolver(ClassTools):
             x = x + dx
             #evaluate collision or boundary crossing
             if flcollide:  #evaluate potential collision
-                if self.Rng.rand() < self.XSFunction(x,'total',self.args)/self.XSCeiling:
+                material = self.XSFunction(x,'mattype')
+                if self.Rng.rand() < self.Slab.totxs[material]/self.Majorant:
                     #------#evaluate accepted collision
-                    if self.Rng.rand()> self.XSFunction(x,'scatrat',self.args):
-                        self.A+=1; flbreak = True    #absorb
+                    if self.Rng.rand()> self.Slab.scatrat[material]:
+                        self.Tals[-1]['Absorb'] +=1; flbreak = True    #absorb
                     else                                                      :
                         mu = 2.0*self.Rng.rand()-1.0 #scatter
             else        :  #evaluate boundary crossing (always leakage event)
-                if   self.isclose(x,0.0)            : self.R+=1; x = 0.0            ; flbreak = True #tally R
-                elif self.isclose(x,self.SlabLength): self.T+=1; x = self.SlabLength; flbreak = True #tally T
+                if   self.isclose(x,0.0)            : self.Tals[-1]['Reflect'] +=1; x = 0.0            ; flbreak = True #tally R
+                elif self.isclose(x,self.SlabLength): self.Tals[-1]['Transmit']+=1; x = self.SlabLength; flbreak = True #tally T
                 else                                : assert(False)
             #tally flux
-            if self.flTally: self.FluxTalObj._tallyFlux( oldx,x,oldmu,iseg=None,collinfo=(flcollide,self.XSCeiling) )
+            if flcollide: self._tallyFluxContribution(oldx,x,oldmu,material,flcollide,self.Majorant)
             #if particle absorbed or leaked, kill history
             if flbreak: break
-
-            
-
-    ## \brief Veneer for '_returnParticleKillMoments' that passes transmittance tally information
-    #
-    # \param flVerbose bool, default False, print to screen the data to return?
-    # \returns ave, stdev, SEM, and FOM of transmittance
-    def returnTransmittanceMoments(self,flVerbose=False):
-        assert isinstance(flVerbose,bool)
-        return self._returnParticleKillMoments(flVerbose,'Transmittance   ',self.T)
-
-    ## \brief Veneer for '_returnParticleKillMoments' that passes reflectance tally information
-    #
-    # \param flVerbose bool, default False, print to screen the data to return?
-    # \returns ave, stdev, SEM, and FOM of reflectance
-    def returnReflectanceMoments(self,flVerbose=False):
-        assert isinstance(flVerbose,bool)
-        return self._returnParticleKillMoments(flVerbose,'Reflectance     ',self.R)
-
-    ## \brief Veneer for '_returnParticleKillMoments' that passes absorption tally information
-    #
-    # \param flVerbose bool, default False, print to screen the data to return?
-    # \returns ave, stdev, SEM, and FOM of absorption
-    def returnAbsorptionMoments(self,flVerbose=False):
-        assert isinstance(flVerbose,bool)
-        return self._returnParticleKillMoments(flVerbose,'Absorption      ',self.A)
-
-    ## \brief Computes and returns information on tallied transmittance, reflectance, or absorption.
-    #
-    # Computes mean, standard deviation, standard error of the mean (Monte Carlo uncertainty),
-    # and figure-of-merit, prints them if chosen, and returns these values.
-    #
-    # \param flVerbose bool, default False, print to screen the data to return?
-    # \param partkilltype str, used in part of the print message
-    # \param tally int, tally of kill type of interest.
-    #
-    # \returns ave, stdev, SEM, and FOM of tally
-    def _returnParticleKillMoments(self,flVerbose,partkilltype,tally):
-        ave = float(tally)/self.NumOfParticles
-        dev = np.sqrt( ave - ave**2 ) * np.sqrt(self.NumOfParticles/(self.NumOfParticles-1.0))
-        SEM = dev/float(np.sqrt(self.NumOfParticles))
-        FOM = 1.0 / ( ( SEM / ave )**2 * self.TotalTime )
-        if flVerbose:
-            print(        partkilltype +  'mean, dev:   {0:.8f}  {1:.8f}'.format(ave,dev))
-            try:    print('              +-SEM , FOM:   {0:.8f}  {1:10g}'.format(SEM,FOM))
-            except: print('              +-SEM      :   {0:.8f}'.format(SEM))
-        return ave,dev,SEM,FOM

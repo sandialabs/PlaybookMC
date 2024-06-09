@@ -6,7 +6,6 @@ import sys
 sys.path.append('../../Core/Tools')
 from RandomNumberspy import RandomNumbers
 from MarkovianInputspy import MarkovianInputs
-from FluxTalliespy import FluxTallies
 sys.path.append('../../Core/3D')
 from MonteCarloParticleSolverpy import MonteCarloParticleSolver
 from Particlepy import Particle
@@ -17,10 +16,12 @@ import numpy as np
 #Prepare inputs
 numparticles  = 1000
 numpartupdat  = 100
-CoPSvariant   = 'CLS-accuracy'  #'AM-accuracy', 'CLS-accuracy', 'moderate-accuracy', or 'errorless-accuracy' - CoPS has several free parameters that enable it to operate differently. In this script, this variable enables user selection between four sets of options that are described in a more detail when this variable is used.
+numpartsample = 2   #with only short-term memory, batch size; with long-term memory, cohort size
+numpartitions = 25    #number of partitions of samples - used to provide r.v. statistical precision
+CoPSvariant   = 'high-accuracy'  #'AM-accuracy', 'CLS-accuracy', or 'moderate-accuracy', or 'high-accuracy' - CoPS has several free parameters that enable it to operate differently. In this script, this variable enables user selection between four sets of options that are described in a more detail when this variable is used.
 Geomsize      = 10.0  #Edge length of cubic 3D geometry
-case          = '3a'  #'1a','1b','1c','2a','2b','2c','3a','3b','3c'; Problem from Adams, Larsen, and Pomraning (ALP) benchmark set
-flfluxtallies = False
+case          = '1b'  #'1a','1b','1c','2a','2b','2c','3a','3b','3c'; Problem from Adams, Larsen, and Pomraning (ALP) benchmark set
+numtalbins    = 8
 
 #Load problem parameters
 CaseInp = MarkovianInputs()
@@ -56,43 +57,25 @@ Geom.defineConditionalSamplingParameters(maxNumPoints=maxnumpoints,maxDistance=n
 Geom.defineLimitedMemoryParameters(recentMemory=recentmemory, amnesiaRadius=amnesiaradius, flLongTermMemory=fllongtermmemory)
 Geom.defineCoPSGeometryType(geomtype='Markovian',fl1DEmulation=False) #geomtype: 'Markovian', 'AM'
 Geom.defineConditionalProbabilityEvaluator(Geom.computeConditionalProbabilitiesFromGoverningPointsUsingPseudoInterfaces)
-Geom.initializeGeometryMemory()
 
 #Instantiate and associate the general Monte Carlo particle solver
-NDMC = MonteCarloParticleSolver()
+NDMC = MonteCarloParticleSolver(numpartsample)
 NDMC.associateRng(Rng)
 NDMC.associatePart(Part)
 NDMC.associateGeom(Geom)
-
-#If selected, instantiate and associate flux tally object
-if flfluxtallies:
-    FTal = FluxTallies()
-    FTal.setFluxTallyOptions(numMomsToTally=2)
-    FTal.defineSMCGeometry(slablength=Geom.zbounds[1]-Geom.zbounds[0],xmin=Geom.zbounds[0])
-    NDMC.associateFluxTallyObject(FTal)
-    FTal.setupFluxTallies(numTallyBins=100,flMaterialDependent=True,numMaterials=Geom.nummats)
-    if FTal.flMaterialDependent:
-        FTal.defineFluxTallyMethod( FTal._tallyMaterialBasedCollisionFlux )
-        FTal.defineMaterialTypeMethod( FTal._return_iseg_AsMaterialType )
-        matfractions = np.ones((Geom.nummats,FTal.numTallyBins))
-        for imat in range(0,Geom.nummats):
-            matfractions[imat,:] = np.multiply(matfractions[imat,:],Geom.prob[imat])
-        FTal.defineMaterialTypeFractions( matfractions )
-    else                  :
-        FTal.defineFluxTallyMethod( FTal._tallyCollisionFlux )
+NDMC.selectFluxTallyOptions(numFluxBins=numtalbins,fluxTallyType='Collision')
 
 #Run particle histories
 NDMC.pushParticles(NumNewParticles=numparticles,NumParticlesUpdateAt=numpartupdat)
 
 #Compute tallies, return values from function and print to screen
-tmean,tdev,tSEM,tFOM = NDMC.returnTransmittanceMoments(flVerbose=True)
-rmean,rdev,rSEM,rFOM = NDMC.returnReflectanceMoments(flVerbose=True)
-amean,adev,aSEM,aFOM = NDMC.returnAbsorptionMoments(flVerbose=True)
-smean,sdev,sSEM,sFOM = NDMC.returnSideLeakageMoments(flVerbose=True)
-fmean,fdev,fSEM,fFOM = NDMC.returnFluxMoments(flVerbose=True)
+NDMC.processSimulationFluxTallies()
+tmean,tdev,tmeanSEM,tdevSEM = NDMC.returnTransmittanceMoments(flVerbose=True,NumStatPartitions=numpartitions)
+rmean,rdev,rmeanSEM,rdevSEM = NDMC.returnReflectanceMoments(flVerbose=True,NumStatPartitions=numpartitions)
+amean,adev,ameanSEM,adevSEM = NDMC.returnAbsorptionMoments(flVerbose=True,NumStatPartitions=numpartitions)
+smean,sdev,smeanSEM,sdevSEM = NDMC.returnSideLeakageMoments(flVerbose=True,NumStatPartitions=numpartitions)
+fmean,fdev,fmeanSEM,fdevSEM = NDMC.returnWholeDomainFluxMoments(flVerbose=True,NumStatPartitions=numpartitions)
+print()
+NDMC.returnRuntimeValues(flVerbose=True)
 
-#If selected, print, read, and plot flux tallies (currently must print and read to plot, refactor to not require printing and reading to plot desired)
-if flfluxtallies:
-    FTal.printFluxVals(filename='3DCoPSFlux'+case,flFOMs=True)
-    FTal.readFluxVals( filename='3DCoPSFlux'+case)
-    FTal.plotFlux(flMaterialDependent=True)
+NDMC.plotFlux(flMaterialDependent=True)
