@@ -1,6 +1,5 @@
 #!usr/bin/env python
 import numpy as np
-import matplotlib.pyplot as plt
 ## \brief Accesses Markovian media benchmark inputs and solves mixing parameters from others
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
 # \author Emily Vu

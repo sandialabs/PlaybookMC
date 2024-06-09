@@ -19,10 +19,26 @@ class Geometry_Markovian(Geometry_Base):
         super(Geometry_Markovian,self).__init__()
         self.flshowplot = False; self.flsaveplot = False
         self.GeomType = 'Markovian'
+        self.abundanceModel = 'ensemble'
     
     def __str__(self):
         return str(self.__dict__)
-    
+
+    ## \brief Some geometries will need to overwrite this method definition, others won't.
+    #
+    # \returns nothing
+    def _initializeHistoryGeometryMemory(self):
+        pass
+
+    ## \brief Initializes list of material types and coordinate of location, initializes xyz boundary locations
+    #
+    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
+    #
+    # \returns initializes self.MatInds and self.xBoundaries, self.yBoundaries, self.zBoundaries
+    def _initializeSampleGeometryMemory(self):
+        self._sampleNumberOfHyperplanes()
+        self._sampleHyperplaneLocations()
+
     ## \brief Defines mixing parameters (correlation length and material probabilities)
     # Note: laminf and rhoP notation following LarmierJQSRT2017 different mixing types paper
     #
@@ -39,15 +55,6 @@ class Geometry_Markovian(Geometry_Base):
         self.prob   = prob
         self.rhoP   = 1.0 / self.laminf
 
-
-    ## \brief Initializes list of material types and coordinate of location, initializes xyz boundary locations
-    #
-    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
-    #
-    # \returns initializes self.MatInds and self.xBoundaries, self.yBoundaries, self.zBoundaries
-    def initializeGeometryMemory(self):
-        self._sampleNumberOfHyperplanes()
-        self._sampleHyperplaneLocations()
 
     ## \brief compute average number of hyper-planes
     #

@@ -1,5 +1,4 @@
 #!usr/bin/env python
-import numpy as np
 
 ## \brief Tools to be used in several classes, can inherit from here.
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com

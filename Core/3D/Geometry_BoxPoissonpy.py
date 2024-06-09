@@ -1,9 +1,7 @@
 #!usr/bin/env python
 from Geometry_Basepy import Geometry_Base
 import numpy as np
-import scipy.spatial
 import bisect as bisect
-import collections
 try:
     import pandas as pd
 except:
@@ -23,11 +21,27 @@ class Geometry_BoxPoisson(Geometry_Base):
         self.flshowplot = False; self.flsaveplot = False
         self.kdtrees = False
         self.GeomType = 'BoxPoisson'
+        self.abundanceModel = 'ensemble'
 
     def __str__(self):
         return str(self.__dict__)
 
     
+    ## \brief Some geometries will need to overwrite this method definition, others won't.
+    #
+    # \returns nothing
+    def _initializeHistoryGeometryMemory(self):
+        pass
+
+    ## \brief Initializes list of material types and coordinate of location, initializes xyz boundary locations
+    #
+    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
+    #
+    # \returns initializes self.MatInds and self.xBoundaries, self.yBoundaries, self.zBoundaries
+    def _initializeSampleGeometryMemory(self):
+        self._sampleNumberOfHyperplanes()
+        self._sampleHyperplaneLocations()
+
     ## \brief Defines mixing parameters (correlation length and material probabilities)
     # Note: laminf and rhoB notation and formula following LarmierJQSRT2017 different mixing types paper
     #
@@ -45,16 +59,6 @@ class Geometry_BoxPoisson(Geometry_Base):
         self.rhoB   = 2.0 / 3.0 / self.laminf
 
                 
-    ## \brief Initializes list of material types and coordinate of location, initializes xyz boundary locations
-    #
-    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
-    #
-    # \returns initializes self.MatInds and self.xBoundaries, self.yBoundaries, self.zBoundaries
-    def initializeGeometryMemory(self):
-        self._sampleNumberOfHyperplanes()
-        self._sampleHyperplaneLocations()
-        
-
     ## \brief compute number of pseudo-interfaces
     #
     # \computes number of pseudo-interfaces in x, y, and z direction for defined geometry 

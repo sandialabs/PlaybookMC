@@ -5,7 +5,6 @@ from RandomNumberspy import RandomNumbers
 from Particlepy import Particle
 from ClassToolspy import ClassTools
 import numpy as np
-import matplotlib.pyplot as plt
 
 ## \brief Multi-D base geometry class - useless by itself, but other multi-D geometry classes inherit from it
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
@@ -40,9 +39,9 @@ class Geometry_Base(ClassTools):
         self.ybounds = ybounds
         self.zbounds = zbounds
 
-        self.Volume = self.zbounds[1]-zbounds[0]
-        if self.Part.numDims>=2: self.Volume *= (self.xbounds[1]-xbounds[0])
-        if self.Part.numDims==3: self.Volume *= (self.ybounds[1]-ybounds[0])
+        self.Volume = self.zbounds[1]-self.zbounds[0]
+        if self.Part.numDims>=2: self.Volume *= (self.xbounds[1]-self.xbounds[0])
+        if self.Part.numDims==3: self.Volume *= (self.ybounds[1]-self.ybounds[0])
 
 
     ## \brief Define boundary conditions
@@ -188,18 +187,19 @@ class Geometry_Base(ClassTools):
 
 
 
+    ## \brief Initialize geometry parameters at start of each history
+    # \returns nothing
+    def _initializeHistoryGeometryMemory(self):
+        assert 1==0
 
-
-
+    ## \brief Initialize geometry parameters at start of each sample
+    # \returns nothing
+    def _initializeSampleGeometryMemory(self):
+        assert 1==0
 
     ## \brief Define mixing parameters (correlation length and material probabilities)
     # To be provided by non-base class
     def defineMixingParams(self,laminf=None,prob=None):
-        assert 1==0
-
-    ## \brief Initializes list of material types and coordinate of location, initializes xyz boundary locations
-    # To be provided by non-base class
-    def initializeGeometryMemory(self):
         assert 1==0
 
     ## \brief Samples a new point according to the selected rules

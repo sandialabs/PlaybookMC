@@ -1,6 +1,6 @@
 #!usr/bin/env python
 ## \file 1DSlabRealizationGenerationDriver.py
-#  \brief Example script generating and performing operations with stochastic media 1D realizations
+#  \brief Example script generating and performing operations with stochastic media 1D realizations.
 #  \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
 import sys
 sys.path.append('../../Core/Tools')

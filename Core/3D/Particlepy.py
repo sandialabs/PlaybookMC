@@ -3,7 +3,6 @@ import sys
 sys.path.append('/../../Classes/Tools')
 from RandomNumberspy import RandomNumbers
 import numpy as np
-import matplotlib.pyplot as plt
 ## \brief Class for multidimensional particle
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
 #

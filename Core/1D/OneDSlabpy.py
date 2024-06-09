@@ -184,7 +184,6 @@ class Slab(ClassTools,MarkovianInputs):
         b0 = [0]*self.nummats; b0.append(1)
         b=np.transpose(np.array(b0))
         self.chordfreq = list( np.linalg.solve(np.transpose(A).dot(A), np.transpose(A).dot(b)) )
-        #########print('self.chordfreq:',self.chordfreq)
         self.prob = []
         for i in range(0,self.nummats):
             self.prob.append( self.chordfreq[i]*self.lam[i] / np.dot(self.chordfreq,self.lam) )
@@ -203,8 +202,6 @@ class Slab(ClassTools,MarkovianInputs):
         else:
             while True: #sample next material either by abundance or with equal probability
                 local_probs = self.NaryType[curmat]
-#                local_probs[curmat] = 0.0                                      #give probability of zero to current material
-#                local_probs = np.divide( local_probs, np.sum(local_probs) )    #normalize probabilities
                 curmat = int( self.Rng.choice( self.nummats, p=local_probs ) ) #select material from any but current
 
                 self.mattype.append(curmat)
@@ -222,7 +219,8 @@ class Slab(ClassTools,MarkovianInputs):
     # \param[in] lam list of average material chord lengths
     # \param[in] s float, the length of the slab
     # \param     scatxs list, optional, list of scattering cross section values, if specified, absorption cross sections and scattering ratios will also be computed and stored as attributes
-    def populateMarkovRealizationPseudo(self,totxs=None,lam=None,s=None,scatxs=None):
+    def populateMarkovRealizationPseudo(self,totxs=None,lam=None,s=None,scatxs=None,NaryType='volume-fraction'):
+        assert NaryType=='volume-fraction' #the pseudo-interface approach is only a valid approach for 'volume-fraction'-type Markovian mixing; for other types of Markovian mixing, use the chord-based sampler
         assert isinstance(totxs,list)
         self.nummats = len(totxs)
         for i in range(0,self.nummats): assert isinstance(totxs[i],float) and totxs[i]>=0.0

@@ -2,8 +2,6 @@
 import sys
 from Geometry_Basepy import Geometry_Base
 sys.path.append('/../../Classes/Tools')
-from RandomNumberspy import RandomNumbers
-from Particlepy import Particle
 from ClassToolspy import ClassTools
 from MarkovianInputspy import MarkovianInputs
 import numpy as np
@@ -18,10 +16,22 @@ class Geometry_CLS(Geometry_Base,ClassTools,MarkovianInputs):
     def __init__(self):
         super(Geometry_CLS,self).__init__()
         self.GeomType = 'CLS'
+        self.abundanceModel = 'ensemble'
 
     def __str__(self):
         return str(self.__dict__)
         
+    ## \brief Some geometries will need to overwrite this method definition, others won't.
+    #
+    # \returns nothing
+    def _initializeHistoryGeometryMemory(self):
+        pass
+
+    ## \brief Some geometries will need to overwrite this method definition, others won't.
+    #
+    # \returns nothing
+    def _initializeSampleGeometryMemory(self):
+        pass
 
     ## \brief Defines mixing parameters (chord lengths and probabilities)
     #
@@ -51,12 +61,6 @@ class Geometry_CLS(Geometry_Base,ClassTools,MarkovianInputs):
         self.CLSAlg = CLSAlg
         assert isinstance(fl1DEmulation,bool)
         self.fl1DEmulation = fl1DEmulation
-
-    ## \brief Initializes geometry memory; CLS doesn't have any so only initialize if LRP
-    def initializeGeometryMemory(self):
-        if self.CLSAlg == "LRP": 
-            self.dip = 0.0
-            self.dim = 0.0
 
     ## \brief Samples material index at start of particle transport based on volume fractions
     #
