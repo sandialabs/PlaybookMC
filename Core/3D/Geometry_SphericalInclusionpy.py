@@ -173,7 +173,8 @@ class Geometry_SphericalInclusion(Geometry_Base):
         self.Radii = np.array(self.Radii)        
         vf = 4/3*np.pi*np.sum([rad**3 for rad in self.Radii])/(self.lx*self.ly*self.lz)
         if self.flVerbose:
-            print(f"Placed a total of {len(self.Radii)} spheres, resulting in a final volume fraction of {vf}")        
+            print(f"Placed a total of {len(self.Radii)} spheres, resulting in a final volume fraction of {vf}")
+        
         # sample what material in each sphere according to user specified average material abundance in spheres
         self.MatInds   = []
         for _ in range(0,len(self.Radii)):
@@ -235,33 +236,24 @@ class Geometry_SphericalInclusion(Geometry_Base):
 
         #Select a random point within the cell
         if self.xperiodic:
-            if xhi > self.xbounds[1]:
-                xhi = self.xbounds[1]
+            if xhi > self.xbounds[1]: xhi = self.xbounds[1]
         else:
-            if ix == 0:
-                xlo = xlo+radius
-            if ix == self.nbinx-1:
-                xhi = self.xbounds[1] - radius
+            if ix == 0              : xlo = xlo+radius
+            if ix == self.nbinx-1   : xhi = self.xbounds[1] - radius
         x = self.Rng.uniform(xlo, xhi)
         
         if self.yperiodic:            
-            if yhi > self.ybounds[1]:
-                yhi = self.ybounds[1]
+            if yhi > self.ybounds[1]: yhi = self.ybounds[1]
         else:
-            if iy == 0:
-                ylo = ylo+radius
-            if iy == self.nbiny-1:
-                yhi = self.ybounds[1] - radius
+            if iy == 0              : ylo = ylo+radius
+            if iy == self.nbiny-1   : yhi = self.ybounds[1] - radius
         y = self.Rng.uniform(ylo, yhi)
         
         if self.zperiodic:            
-            if zhi > self.zbounds[1]:
-                zhi =  self.zbounds[1]
+            if zhi > self.zbounds[1]: zhi =  self.zbounds[1]
         else:
-            if iz == 0:
-                zlo = zlo+radius
-            if iz == self.nbinz-1:
-                zhi = self.zbounds[1] - radius
+            if iz == 0              : zlo = zlo+radius
+            if iz == self.nbinz-1   : zhi = self.zbounds[1] - radius
         z = self.Rng.uniform(zlo, zhi)
 
         return x, y, z
@@ -269,9 +261,20 @@ class Geometry_SphericalInclusion(Geometry_Base):
     
     ## \brief Returns material at specified location
     #
+    # Distance calculation used with periodic boundaries uses the minimum image convention
+    #
     # \returns material type of location
     def _samplePointNoGrid(self):
-        distances = np.sqrt( (self.Centers[:,0]-self.Part.x)**2 + (self.Centers[:,1]-self.Part.y)**2 + (self.Centers[:,2]-self.Part.z)**2 )
+        dx                    = self.Centers[:,0]-self.Part.x                    
+        if self.xperiodic: dx = dx - np.int32(2*dx/self.lx)*self.lx
+
+        dy                    = self.Centers[:,1]-self.Part.y                   
+        if self.yperiodic: dy = dy - np.int32(2*dy/self.ly)*self.ly
+
+        dz                    = self.Centers[:,2]-self.Part.z                    
+        if self.zperiodic: dz = dz - np.int32(2*dz/self.lz)*self.lz
+        
+        distances = np.sqrt(dx**2 + dy **2 + dz**2)
         overlapIndices  = np.where(self.Radii > distances)[0]
         if len(overlapIndices) > 0: self.CurrentMatInd = self.MatInds[overlapIndices[0]]
         else                      : self.CurrentMatInd = self.matMatrix
@@ -287,7 +290,7 @@ class Geometry_SphericalInclusion(Geometry_Base):
 
     ## \brief Adds sphere to bins that it could potentially overlap
     #
-    # This is specific to FastRSA, potentially taking advantage of the case where radius is constant
+    # This is specific to FastRSA, taking advantage of the radius being constant
     # by adding the sphere to a single bin.
     #
     # \param[in] x, y, x, float; coordinates of sphere center
@@ -300,7 +303,8 @@ class Geometry_SphericalInclusion(Geometry_Base):
         iz = int((z - self.zbounds[0]) / self.gridSize)
         gridIndex = self.cellCoordsToIndex[(ix,iy,iz)]
         self.grid[ix, iy, iz] = [[x, y, z, rad, index]]
-        self.emptyCellList = np.delete(self.emptyCellList, self.emptyCellList == gridIndex)               
+        self.emptyCellList = np.delete(self.emptyCellList, self.emptyCellList == gridIndex)           
+                   
 
     ## \brief Adds sphere to bins that it could potentially overlap
     #
@@ -326,20 +330,25 @@ class Geometry_SphericalInclusion(Geometry_Base):
         z = z0 - self.zbounds[0]
         maxOverlapDistance = rad+self.radMax 
 
-        #Bin extents in x
+        #Sphere is added to all grid cells where overlaps need to be checked.
+        #ixlo/ixhi, iylo/iyhi, izlo/izhi are the extents of the grid subdomain,
+        #as grid indices. Negative values of ixlo,iylo,izlo will be used to wrap
+        #around periodic boundaries, if applicable
+
+        #Grid subdomain extents in x
         ixlo = int((x - maxOverlapDistance)/self.gridSize)-1
-        if x < maxOverlapDistance:
-            ixlo = -1
+        if x < maxOverlapDistance: #Needed due to potential truncation of grid cell at upper domain boundary
+            ixlo -= 1
         ixhi = int((x + maxOverlapDistance)/self.gridSize)+1
         if ixlo < 0 and not self.xperiodic:
             ixlo = 0
         if ixhi >= self.nbinx and not self.xperiodic:
             ixhi = self.nbinx-1
 
-        #Bin extents in y
+        #Grid subdomain extens in y
         iylo = int((y - maxOverlapDistance)/self.gridSize)-1
         if y < maxOverlapDistance:
-            iylo = -1
+            iylo -= 1
         iyhi = int((y + maxOverlapDistance)/self.gridSize)+1
         if iylo < 0 and not self.yperiodic:
             iylo = 0
@@ -349,7 +358,7 @@ class Geometry_SphericalInclusion(Geometry_Base):
         #Bin extents in z
         izlo = int((z  - maxOverlapDistance)/self.gridSize)-1
         if z < maxOverlapDistance:
-            izlo = -1
+            izlo -= 1
         izhi = int((z + maxOverlapDistance)/self.gridSize)+1
         if izlo < 0 and not self.zperiodic:
             izlo = 0
@@ -367,6 +376,7 @@ class Geometry_SphericalInclusion(Geometry_Base):
                     yc = (iiy + 0.5)*self.gridSize 
                     zc = (iiz + 0.5)*self.gridSize 
                     if (xs-xc)*(xs-xc) + (ys-yc)*(ys-yc) + (zs-zc)*(zs-zc) < (maxOverlapDistance + self.bindiag)*(maxOverlapDistance + self.bindiag):                   
+                        #If sphere is within relevant distance of grid cell center, add sphere to grid cell
                         if self.grid[iix, iiy, iiz] is None:
                             self.grid[iix, iiy, iiz] = []                        
                         self.grid[iix, iiy, iiz].append([xs + self.xbounds[0], 
@@ -380,6 +390,7 @@ class Geometry_SphericalInclusion(Geometry_Base):
     ## \brief Check if a given sphere overlaps any existing spheres
     #
     # Checks all possible pairs of spheres, hence scaling is N^2
+    # Distance calculation used with periodic boundaries uses the minimum image convention
     #
     # \param[in] x, y, x, float; coordinates of sphere center
     # \param[in] rad, float: sphere radius    
@@ -387,7 +398,16 @@ class Geometry_SphericalInclusion(Geometry_Base):
     def _checkSphereOverlapNoGrid(self, x, y, z, rad):
         if len(self.Centers) == 0: return -1
         centers = np.array(self.Centers)
-        distances = np.sqrt( (centers[:,0]-x)**2 + (centers[:,1]-y)**2 + (centers[:,2]-z)**2 )
+        dx                    = centers[:,0]-x
+        if self.xperiodic: dx = dx - np.int32(2*dx/self.lx)*self.lx
+
+        dy                    = centers[:,1]-y
+        if self.yperiodic: dy = dy - np.int32(2*dy/self.ly)*self.ly
+
+        dz                    = centers[:,2]-z
+        if self.zperiodic: dz = dz - np.int32(2*dz/self.lz)*self.lz
+
+        distances = np.sqrt(dx**2 + dy**2 + dz**2)
         overlapIndices = distances < self.Radii + rad
         if np.any(overlapIndices): return np.where(overlapIndices)[0][0]
         else                     : return -1
@@ -399,48 +419,58 @@ class Geometry_SphericalInclusion(Geometry_Base):
     # to the fast RSA method, where only the nearest neighboring bins need to be 
     # checked.
     #
-    # \param[in] x, y, z, float; coordinates of sphere center
+    # The sphere is checked against all grid cells where overlaps could occur.
+    # Variables ixlo/ixhi, iylo/iyhi, and izlo/izhi are the extents of the grid
+    # subdomain where overlap checking is relevant, as grid indices.
+    # Negative values of ixlo, iylo, and izlo will be used to wrap around
+    # periodic boundaries, if applicable.
+    #
+    # \param[in] x0, y0, z0, float; coordinates of sphere 
     # \param[in] rad, float: sphere radius    
     # \returns Index of sphere that is overlapped; -1 if no overlap
-    def _checkSphereOverlapGridFastRSA(self, x, y, z, rad):
-        
-        ix = int((x - self.xbounds[0])//self.gridSize)
-        iy = int((y - self.ybounds[0])//self.gridSize)        
-        iz = int((z - self.zbounds[0])//self.gridSize)
+    def _checkSphereOverlapGridFastRSA(self, x0, y0, z0, rad):
+        x = x0 - self.xbounds[0]
+        y = y0 - self.ybounds[0]
+        z = z0 - self.zbounds[0]
+
+        ix = int(x/self.gridSize)
+        iy = int(y/self.gridSize)        
+        iz = int(z/self.gridSize)
+
 
         ixlo = ix - self.fastRSANumGridCheck
-        ixhi = ix + self.fastRSANumGridCheck
-        if ixlo < 0 and not self.xperiodic:
-            ixlo = 0
-        if ixhi >= self.nbinx and not self.xperiodic:
-            ixhi = self.nbinx-1
+        ixhi = ix + self.fastRSANumGridCheck 
+        if self.xperiodic:         ixlo -= 1     
+        else             :
+            if ixlo <  0         : ixlo  = 0
+            if ixhi >= self.nbinx: ixhi  = self.nbinx-1
 
         iylo = iy - self.fastRSANumGridCheck
         iyhi = iy + self.fastRSANumGridCheck
-        if iylo < 0 and not self.yperiodic:
-            iylo = 0
-        if iyhi >= self.nbiny and not self.yperiodic:
-            iyhi = self.nbiny-1
+        if self.yperiodic:         iylo -= 1
+        else             :
+            if iylo <  0         : iylo = 0
+            if iyhi >= self.nbiny: iyhi = self.nbiny-1
 
         izlo = iz - self.fastRSANumGridCheck
         izhi = iz + self.fastRSANumGridCheck
-        if izlo < 0 and not self.zperiodic:
-            izlo = 0
-        if izhi >= self.nbinz and not self.zperiodic:
-            izhi = self.nbinz-1
+        if self.zperiodic:         izlo -= 1
+        else             :
+            if izlo <  0         : izlo = 0
+            if izhi >= self.nbinz: izhi = self.nbinz-1
 
         for ix in np.arange(ixlo, ixhi+1):
-            iix, xs = self._wrap_bins(ix, x, self.nbinx, self.lx, self.xperiodic)            
+            iix, xs = self._wrap_bins(ix, x0, self.nbinx, self.lx, self.xperiodic)            
             for iy in np.arange(iylo, iyhi+1):
-                iiy, ys = self._wrap_bins(iy, y, self.nbiny, self.ly, self.yperiodic)
+                iiy, ys = self._wrap_bins(iy, y0, self.nbiny, self.ly, self.yperiodic)
                 for iz in np.arange(izlo, izhi+1):
-                    iiz, zs = self._wrap_bins(iz, z, self.nbinz, self.lz, self.zperiodic)
-                    bin = self.grid[iix, iiy, iiz]        
+                    iiz, zs = self._wrap_bins(iz, z0, self.nbinz, self.lz, self.zperiodic)
+                    bin = self.grid[iix, iiy, iiz]  
                     if bin is None:
                         continue        
                     for particle in bin:            
                         px, py, pz, prad, index = particle
-                        rx = xs - px
+                        rx = xs - px                        
                         ry = ys - py
                         rz = zs - pz
                         r2 = np.sqrt(rx*rx + ry*ry + rz*rz)
@@ -468,15 +498,8 @@ class Geometry_SphericalInclusion(Geometry_Base):
         for particle in bin:            
             px, py, pz, prad, index = particle
             rx = x - px
-            if (self.xperiodic): 
-                rx = rx - int(rx/self.lx)*self.lx
             ry = y - py
-            if (self.yperiodic): 
-                ry = ry - int(ry/self.ly)*self.ly
-            rz = z - pz
-            if (self.zperiodic): 
-                rz = rz - int(rz/self.lz)*self.lz
-            
+            rz = z - pz            
             r2 = np.sqrt(rx*rx + ry*ry + rz*rz)
             if r2 < rad + prad:
                 return index
@@ -484,7 +507,7 @@ class Geometry_SphericalInclusion(Geometry_Base):
     
     ## \brief Wrap bin index and sphere coordinates around periodic boundaries
     #
-    # Helper function for wrapping bins and sphere coordinates around PBCs
+    # Helper function for wrapping bins and sphere coordinates around periodic boundaries
     #
     # \param[in] ibin, int; index of bin along relevant direction
     # \param[in] coord, float; coordinate of sphere along relevant direction
@@ -498,7 +521,7 @@ class Geometry_SphericalInclusion(Geometry_Base):
         if ibin < 0:
             wbin = np.max((nbins + ibin, 0))
             wcoord = coord + length
-        if ibin >= nbins:
+        elif ibin >= nbins:
             wbin = np.min((ibin - nbins, nbins-1))
             wcoord = coord - length
         else:

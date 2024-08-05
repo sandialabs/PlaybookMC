@@ -24,8 +24,8 @@ numpartitions = 5    #number of partitions of samples - used to provide r.v. sta
 raddist       = 'Constant' #'Constant', 'Uniform', 'Exponential'
 Geomsize      = 10.0
 case          = '2'        #'1','2','3'; case number from BrantleyMC2011 and BrantleyANS2014
-volfrac       = '0.05'     #'0.05','0.10','0.15','0.20','0.25','0.30'; volume fraction of spheres as a string
-sphSampleModel= 'NoGrid'   #'NoGrid', 'GenericGrid', or 'FastRSA'
+volfrac       = '0.20'     #'0.05','0.10','0.15','0.20','0.25','0.30'; volume fraction of spheres as a string
+sphSampleModel= 'FastRSA'   #'NoGrid', 'GenericGrid', or 'FastRSA'
 abundanceModel= 'ensemble' #'ensemble' or 'sample'
 numtalbins    = 20
 
@@ -57,7 +57,9 @@ Geom.associatePart(Part)
 Geom.defineGeometryBoundaries(xbounds=[-Geomsize/2,Geomsize/2],ybounds=[-Geomsize/2,Geomsize/2],zbounds=[-Geomsize/2,Geomsize/2])
 Geom.defineBoundaryConditions(xBCs=['reflective','reflective'],yBCs=['reflective','reflective'],zBCs=['vacuum','vacuum'])
 Geom.defineCrossSections(totxs=CaseInp.Sigt[:],scatxs=CaseInp.Sigs[:])
-Geom.defineMixingParams(sphereFrac=CaseInp.sphereFrac,radMin=CaseInp.radMin,radAve=CaseInp.radAve,radMax=CaseInp.radMax,sizeDistribution=CaseInp.sizeDistribution,matSphProbs=CaseInp.matSphProbs,matMatrix=CaseInp.matMatrix,xperiodic=False,yperiodic=False,zperiodic=False)
+Geom.defineMixingParams(sphereFrac=CaseInp.sphereFrac,radMin=CaseInp.radMin,radAve=CaseInp.radAve,radMax=CaseInp.radMax,
+                        sizeDistribution=CaseInp.sizeDistribution,matSphProbs=CaseInp.matSphProbs,
+                        matMatrix=CaseInp.matMatrix,xperiodic=False,yperiodic=False,zperiodic=False)
 Geom.defineGeometryGenerationParams(maxPlacementAttempts=10000, sphSampleModel=sphSampleModel, gridSize=None)
 
 #Instantiate and associate the general Monte Carlo particle solver
