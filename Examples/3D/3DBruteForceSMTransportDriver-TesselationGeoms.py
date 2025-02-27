@@ -14,14 +14,16 @@ from Geometry_Voronoipy import Geometry_Voronoi
 from Geometry_BoxPoissonpy import Geometry_BoxPoisson
 
 #Prepare inputs
-numparticles  = 10000
-numpartupdat  = 1000
+numparticles  = 1000
+numpartupdat  = 100
 numpartsample = 1   #number of particle histories per realization
 numpartitions = 25    #number of partitions of samples - used to provide r.v. statistical precision
-Solvervariant ='Markovian_realizations' #'Markovian_realizations','BoxPoisson_realizations','Voronoi_realizations'
+Solvervariant = 'BoxPoisson_realizations' #'Markovian_realizations','BoxPoisson_realizations','Voronoi_realizations'
 Geomsize      = 10.0
 case          = '3b'  #'1a','1b','1c','2a','2b','2c','3a','3b','3c'; Problem from Adams, Larsen, and Pomraning (ALP) benchmark set
 numtalbins    = 8
+flVoxelize    = False   #turn realizations into voxel versions of themselves?
+numVoxels     = [10]*3  #number of voxels in each of three directions
 
 #Load problem parameters
 CaseInp = MarkovianInputs()
@@ -49,6 +51,7 @@ Geom.associatePart(Part)
 Geom.defineGeometryBoundaries(xbounds=[-Geomsize/2,Geomsize/2],ybounds=[-Geomsize/2,Geomsize/2],zbounds=[-Geomsize/2,Geomsize/2])
 Geom.defineBoundaryConditions(xBCs=['reflective','reflective'],yBCs=['reflective','reflective'],zBCs=['vacuum','vacuum'])
 Geom.defineCrossSections(totxs=CaseInp.Sigt[:],scatxs=CaseInp.Sigs[:])
+Geom.defineVoxelizationParams(flVoxelize=flVoxelize,numVoxels=numVoxels)
 
 MarkInp = MarkovianInputs()
 MarkInp.solveNaryMarkovianParamsBasedOnChordLengths( lam=CaseInp.lam[:] )

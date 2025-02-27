@@ -1,5 +1,5 @@
 #!usr/bin/env python
-from Geometry_Basepy import Geometry_Base
+from Geometry_Voxelpy import Geometry_Voxel
 import numpy as np
 import math as math
 try:
@@ -14,7 +14,7 @@ except:
 #
 # Class for multi-D Box-Poisson geometry 
 #
-class Geometry_Markovian(Geometry_Base):
+class Geometry_Markovian(Geometry_Voxel):
     def __init__(self):
         super(Geometry_Markovian,self).__init__()
         self.flshowplot = False; self.flsaveplot = False
@@ -30,14 +30,14 @@ class Geometry_Markovian(Geometry_Base):
     def _initializeHistoryGeometryMemory(self):
         pass
 
-    ## \brief Initializes list of material types and coordinate of location, initializes xyz boundary locations
+    ## \brief Samples hyperplanes to define geometry, voxelizes if selected
     #
-    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
-    #
-    # \returns initializes self.MatInds and self.xBoundaries, self.yBoundaries, self.zBoundaries
+    # \returns initializes self.MatInds, self.xBoundaries, self.yBoundaries, self.zBoundaries; sets self.samplePoint; and voxelizes if selected
     def _initializeSampleGeometryMemory(self):
         self._sampleNumberOfHyperplanes()
         self._sampleHyperplaneLocations()
+        self.samplePoint = self.samplePoint_Markovian
+        if self.flVoxelize: self.voxelizeGeometry()
 
     ## \brief Defines mixing parameters (correlation length and material probabilities)
     # Note: laminf and rhoP notation following LarmierJQSRT2017 different mixing types paper
@@ -48,6 +48,8 @@ class Geometry_Markovian(Geometry_Base):
     def defineMixingParams(self,laminf=None,prob=None):
         # Assert material chord lengths and slab length and store in object
         assert isinstance(laminf,float) and laminf>0.0
+        if not hasattr(self, "nummats"):
+            self.nummats = len(prob)
         assert isinstance(prob,list) and len(prob)==self.nummats
         for i in range(0,self.nummats): assert isinstance(prob[i],float) and prob[i]>=0.0 and prob[i]<=1.0
         assert self.isclose( np.sum(prob), 1.0 )
@@ -99,23 +101,17 @@ class Geometry_Markovian(Geometry_Base):
             self.p1.append(p1)
 
     
-    ## \brief Samples a new point according to the selected rules
+    ## \brief Finds (or samples) material type at current location
     #
-    # \returns scattering ratio of cell material type
-    def samplePoint(self):
-        #find index of nearest point
-        self.x = self.Part.x
-        self.y = self.Part.y
-        self.z = self.Part.z
-
+    # \returns sets self.CurrentMatInd
+    def samplePoint_Markovian(self):
+        #find keycode of Poisson cell
         keyCode = self._locateMarkovCell()
+        #check if material has been sampled for specified cell; if not, sample material type
+        if not keyCode in self.Cells.keys():
+            self.Cells[keyCode] = int(self.Rng.choice(p=self.prob))
+        self.CurrentMatInd = self.Cells.get(keyCode)
 
-        #check if material has been sampled for specified cell. If not sample material type.
-        if keyCode in self.Cells.keys():
-            self.CurrentMatInd = self.Cells.get(keyCode)
-        else:
-            self.CurrentMatInd = int(self.Rng.choice(p=self.prob))
-            self.Cells[keyCode] = self.CurrentMatInd
 
     ## \brief Samples a new point according to the selected rules
     #
@@ -135,7 +131,6 @@ class Geometry_Markovian(Geometry_Base):
         #Using np.matmul instead of @ to keep things Python 2 compatible        
         location = np.multiply(n1s, relP1) + np.matmul(n2, relP2) + np.matmul(n3, relP3) 
         
-        #print("Location matrix constructed, shape is ", location.shape)
         #Columns of location matrix correspond to distances from planes (rows of locations matrix)
         #Get unique keycodes indicating cells
         
@@ -174,8 +169,7 @@ class Geometry_Markovian(Geometry_Base):
                 self.Cells[k] = mat
                 materials_dict[k] = mat          
         
-        materials = [materials_dict[k] for k in rows]
-        print("Full lookup complete")        
+        materials = [materials_dict[k] for k in rows]        
         return materials
            
     ## \brief determine relative location of particle with each plane
@@ -184,9 +178,9 @@ class Geometry_Markovian(Geometry_Base):
     def _locateMarkovCell(self):
         keyCode = "";
         for plane in range(0,self.numPlanes):
-            relP1 = self.x - self.p1[plane]
-            relP2 = self.y
-            relP3 = self.z
+            relP1 = self.Part.x - self.p1[plane]
+            relP2 = self.Part.y
+            relP3 = self.Part.z
 
             location = ( self.n1[plane]*relP1 ) + ( self.n2[plane]*relP2 ) + (self.n3[plane]*relP3)
 

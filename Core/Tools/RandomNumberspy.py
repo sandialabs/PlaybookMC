@@ -31,6 +31,7 @@ class RandomNumbers():
         self.Seed      = seed
         self.Stridelen = stridelen
         self.RngObj    = np.random.RandomState()
+        self.setSeedAtStride(1)
         
     def __str__(self):
         return str(self.__dict__)

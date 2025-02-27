@@ -47,16 +47,16 @@ Geom.defineGeometryBoundaries(xbounds=[-Geomsize/2,Geomsize/2],ybounds=[-Geomsiz
 Geom.defineBoundaryConditions(xBCs=['reflective','reflective'],yBCs=['reflective','reflective'],zBCs=['vacuum','vacuum'])
 Geom.defineCrossSections(totxs=CaseInp.Sigt[:],scatxs=CaseInp.Sigs[:])
 
-Geom.defineMixingParams(lam=CaseInp.lam[:])
+Geom.defineConditionalProbabilityEvaluator(conditionalProbEvaluator='MarkovianIndependentContribs')
+Geom.defineMixingParams(CaseInp.lam[:])
 if   CoPSvariant == 'AM-accuracy'      : maxnumpoints = 0; recentmemory = 0; amnesiaradius = None; fllongtermmemory = False #With these options, new points are sampled based only on material abundance (and no previously sampled points).  In OlsonMC2023, it was argued and demonstrated that when running CoPS with these options yields equivalent transport solutions as the atomic mix (AM) approximation.
 elif CoPSvariant == 'CLS-accuracy'     : maxnumpoints = 1; recentmemory = 1; amnesiaradius = None; fllongtermmemory = False #With these options, only the most recently sampled point is remembered and used in conditional probability evluations for the next point. In OlsonMC2023, it was argued and demonstrated that when running CoPS with these options, for stochastic media with Markovian mixing statistics, yields equivalent transport solutions as Chord Length Sampling
 elif CoPSvariant == 'moderate-accuracy': maxnumpoints = 1; recentmemory = 1; amnesiaradius = 0.01; fllongtermmemory = True  #With these options, a sampled point is remembered in long-term memory as long as it is at least 0.01 units from the nearest point which is already stored in long-term memory.  Additionally, the most recently sampled point that was not stored in long-term memory is stored in short-term memory. The nearest point from both sets of memory to a newly sampled point is used in conditional probability evaluations for the next point. This choice of recent memory and amnesia radius was explored in VuNSE2022.
 elif CoPSvariant == 'high-accuracy'    : maxnumpoints = 3; recentmemory = 1; amnesiaradius = 0.01; fllongtermmemory = True  #With these options, a sampled point is remembered in long-term memory as long as it is at least 0.01 units from the nearest point which is already stored in long-term memory.  Additionally, the most recently sampled point that was not stored in long-term memory is stored in short-term memory. The nearest three points to a newly sampled point, drawn from both sets of memory, that aren't excluded based on the exclusion angle, are used in conditional probability evaluations for the next point. Considering more than one point noticeably increases runtime, but also increases accuracy.
-else                                   : raise Exception("Please choose 'CLS-accuracy', 'moderate-accuracy', or 'high-accuracy' for CoPSvariant")
+else                                   : raise Exception("Please choose 'AM-accuracy', 'CLS-accuracy', 'moderate-accuracy', or 'high-accuracy' for CoPSvariant")
 Geom.defineConditionalSamplingParameters(maxNumPoints=maxnumpoints,maxDistance=np.sqrt(3.0)*Geomsize+1.0,exclusionMultiplier=1.0) #These options use up to two governing points for CPF evaluations, exclude no points based on distance (this distance a little greater than largest possible distance in cubic geometry of side length Geomsize), and select a moderate angular exclusion multiplier (as explored in OlsonMC2019; that guards against using multiple points that are very close together as governing points)
 Geom.defineLimitedMemoryParameters(recentMemory=recentmemory, amnesiaRadius=amnesiaradius, flLongTermMemory=fllongtermmemory)
-Geom.defineCoPSGeometryType(geomtype='Markovian',fl1DEmulation=False) #geomtype: 'Markovian', 'AM'
-Geom.defineConditionalProbabilityEvaluator(Geom.computeConditionalProbabilitiesFromGoverningPointsUsingPseudoInterfaces)
+Geom.defineCoPSGeometryType(geomtype='Markovian') #geomtype: 'Markovian', 'AM'
 
 #Instantiate and associate the general Monte Carlo particle solver
 NDMC = MonteCarloParticleSolver(numpartsample)

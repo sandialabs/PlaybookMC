@@ -10,8 +10,6 @@ import matplotlib.pyplot as plt
 ## \brief Multi-D CLS geometry class
 # \author Dominic Lioce, dalioce@sandia.gov, liocedominic@gmail.com
 #
-# A good chunk of this class is copied from the CoPS geometry class. Only a few things are different
-#
 class Geometry_CLS(Geometry_Base,ClassTools,MarkovianInputs):
     def __init__(self):
         super(Geometry_CLS,self).__init__()

@@ -1,7 +1,6 @@
 #!usr/bin/env python
-from Geometry_Basepy import Geometry_Base
+from Geometry_Voxelpy import Geometry_Voxel
 import numpy as np
-
 from scipy.special import gamma
 import scipy.spatial
 try:
@@ -15,7 +14,7 @@ except:
 #
 # Class for multi-D Voronoi geometry 
 #
-class Geometry_Voronoi(Geometry_Base):
+class Geometry_Voronoi(Geometry_Voxel):
     def __init__(self):
         super(Geometry_Voronoi,self).__init__()
         self.seedsKDTree = None
@@ -33,14 +32,15 @@ class Geometry_Voronoi(Geometry_Base):
     def _initializeHistoryGeometryMemory(self):
         pass
 
-    ## \brief Initializes points and material indices and samples seed location
+    ## \brief Samples cell seed locations to define geometry, voxelizes if selected
     #
-    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
-    #
-    # \returns initializes self.SeedLocations and self.SeedMatIndices 
+    # \returns initializes self.SeedLocations and self.SeedMatIndices; sets self.samplePoint; and voxelizes if selected
     def _initializeSampleGeometryMemory(self):
         self._sampleNumberOfSeeds()
         self._sampleSeedLocations()
+        self.seedsKDTree = None
+        self.samplePoint = self.samplePoint_Voronoi
+        if self.flVoxelize: self.voxelizeGeometry()
 
     ## \brief Defines mixing parameters (correlation length and material probabilities)
     # Note: laminf and rhoV notation and formula following LarmierJQSRT2017 different mixing types paper
@@ -51,6 +51,8 @@ class Geometry_Voronoi(Geometry_Base):
     def defineMixingParams(self,laminf=None,prob=None):
         # Assert material chord lengths and slab length and store in object
         assert isinstance(laminf,float) and laminf>0.0
+        if not hasattr(self, "nummats"):
+            self.nummats = len(prob)
         assert isinstance(prob,list) and len(prob)==self.nummats
         for i in range(0,self.nummats): assert isinstance(prob[i],float) and prob[i]>=0.0 and prob[i]<=1.0
         assert self.isclose( np.sum(prob), 1.0 )
@@ -88,17 +90,16 @@ class Geometry_Voronoi(Geometry_Base):
         self.SeedLocations = np.asarray(self.SeedLocations)
         self.SeedMatIndices = np.array(self.SeedMatIndices)
     
-    ## \brief Samples a new point according to the selected rules
+    ## \brief Finds (or samples) material type at current location
     #
-    # \returns scattering ratio of cell material type
-    def samplePoint(self):
-        #find index of nearest point
+    # \returns sets self.CurrentMatInd
+    def samplePoint_Voronoi(self):
+        #find distances to Voronoi seed locations; find shortest distance
         xDists = self.SeedLocations[:,0]-self.Part.x
         yDists = self.SeedLocations[:,1]-self.Part.y
         zDists = self.SeedLocations[:,2]-self.Part.z
-
         minDistIndex = np.argmin( np.sqrt( xDists**2 + yDists**2 + zDists**2 ) )
-        
+        #check if material has been sampled in this cell; if not, sample material type
         if self.SeedMatIndices[minDistIndex] == None:
             self.SeedMatIndices[minDistIndex] = int(self.Rng.choice(p=self.prob))
         self.CurrentMatInd = self.SeedMatIndices[minDistIndex]

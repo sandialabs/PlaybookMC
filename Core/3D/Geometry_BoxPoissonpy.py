@@ -1,5 +1,5 @@
 #!usr/bin/env python
-from Geometry_Basepy import Geometry_Base
+from Geometry_Voxelpy import Geometry_Voxel
 import numpy as np
 import bisect as bisect
 try:
@@ -15,7 +15,7 @@ except:
 #
 # Class for multi-D Box-Poisson geometry 
 #
-class Geometry_BoxPoisson(Geometry_Base):
+class Geometry_BoxPoisson(Geometry_Voxel):
     def __init__(self):
         super(Geometry_BoxPoisson,self).__init__()
         self.flshowplot = False; self.flsaveplot = False
@@ -33,14 +33,14 @@ class Geometry_BoxPoisson(Geometry_Base):
     def _initializeHistoryGeometryMemory(self):
         pass
 
-    ## \brief Initializes list of material types and coordinate of location, initializes xyz boundary locations
+    ## \brief Samples hyperplanes to define geometry, voxelizes if selected
     #
-    # Note: Numpy arrays don't start blank and concatenate, where lists do, therefore plan to use lists, but convert to arrays using np.asarray(l) if needed to use array format
-    #
-    # \returns initializes self.MatInds and self.xBoundaries, self.yBoundaries, self.zBoundaries
+    # \returns initializes self.MatInds, self.xBoundaries, self.yBoundaries, self.zBoundaries; sets self.samplePoint; and voxelizes if selected
     def _initializeSampleGeometryMemory(self):
         self._sampleNumberOfHyperplanes()
         self._sampleHyperplaneLocations()
+        self.samplePoint = self.samplePoint_BoxPoisson
+        if self.flVoxelize: self.voxelizeGeometry()
 
     ## \brief Defines mixing parameters (correlation length and material probabilities)
     # Note: laminf and rhoB notation and formula following LarmierJQSRT2017 different mixing types paper
@@ -51,6 +51,8 @@ class Geometry_BoxPoisson(Geometry_Base):
     def defineMixingParams(self,laminf=None,prob=None):
         # Assert material chord lengths and slab length and store in object
         assert isinstance(laminf,float) and laminf>0.0
+        if not hasattr(self, "nummats"):
+            self.nummats = len(prob)
         assert isinstance(prob,list) and len(prob)==self.nummats
         for i in range(0,self.nummats): assert isinstance(prob[i],float) and prob[i]>=0.0 and prob[i]<=1.0
         assert self.isclose( np.sum(prob), 1.0 )
@@ -71,7 +73,6 @@ class Geometry_BoxPoisson(Geometry_Base):
         self.yPInterfaces = self.Rng.poisson(yAve)
         self.zPInterfaces = self.Rng.poisson(zAve)
         self.MatInds = np.full( ( self.xPInterfaces+1 , self.yPInterfaces+1 , self.zPInterfaces+1 ),None )
-        #print(self.xPInterfaces,self.yPInterfaces,self.zPInterfaces, "planes sampled in x, y, and z")
 
 
     ## \brief sample location of pseudo-interfaces and constructs Box-Poisson geometry
@@ -98,24 +99,20 @@ class Geometry_BoxPoisson(Geometry_Base):
         self.yBoundaries.sort()
         self.zBoundaries.sort()
         
-    ## \brief Samples a new point according to the selected rules
+    ## \brief Finds (or samples) material type at current location
     #
-    # \returns scattering ratio of cell material type
-    def samplePoint(self):
-        #find index of nearest point
-        x = self.Part.x
-        y = self.Part.y
-        z = self.Part.z
-
-        xIndex = bisect.bisect(self.xBoundaries,x) - 1
-        yIndex = bisect.bisect(self.yBoundaries,y) - 1
-        zIndex = bisect.bisect(self.zBoundaries,z) - 1
-        #check if material has been sampled. If not sample material type.
+    # \returns sets self.CurrentMatInd
+    def samplePoint_BoxPoisson(self):
+        #find indices of current box
+        xIndex = bisect.bisect(self.xBoundaries,self.Part.x) - 1
+        yIndex = bisect.bisect(self.yBoundaries,self.Part.y) - 1
+        zIndex = bisect.bisect(self.zBoundaries,self.Part.z) - 1
+        #check if material has been sampled in this box; if not, sample material type
+        if self.MatInds[xIndex,yIndex,zIndex]==None:
+            self.MatInds[xIndex,yIndex,zIndex] = int(self.Rng.choice(p=self.prob))
         self.CurrentMatInd = self.MatInds[xIndex,yIndex,zIndex]
-        if self.CurrentMatInd==None:
-            self.CurrentMatInd = int(self.Rng.choice(p=self.prob))
-            self.MatInds[xIndex,yIndex,zIndex] = self.CurrentMatInd
-        
+
+
     def samplePointsFast(self, points):
         #find index of nearest point 
         xinds = np.searchsorted(self.xBoundaries, points[:,0], side='right')-1
@@ -144,11 +141,7 @@ class Geometry_BoxPoisson(Geometry_Base):
             xi = np.int16(xi)
             yi = np.int16(yi)
             zi = np.int16(zi)   
-            #uniques = np.array(list(uniques.keys()))
-            #uniques = np.unique(unassigned_inds, axis=0)
             new_assignments = self.Rng.RngObj.choice(self.nummats, size=len(uniques), p=self.prob)            
-            #self.MatInds[uniques[:,0], uniques[:,1], uniques[:,2]] = new_assignments
             self.MatInds[xi, yi, zi] = new_assignments
             matTypes = self.MatInds[xinds, yinds, zinds]
         return matTypes.astype(np.int16)
-

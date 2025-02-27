@@ -1,5 +1,5 @@
 #!usr/bin/env python
-from Geometry_Basepy import Geometry_Base
+from Geometry_Voxelpy import Geometry_Voxel
 import scipy.stats
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 #
 # Class for multi-D SphericalInclusion geometry 
 #
-class Geometry_SphericalInclusion(Geometry_Base):
+class Geometry_SphericalInclusion(Geometry_Voxel):
     def __init__(self,flVerbose=False,abundanceModel='ensemble'):
         super(Geometry_SphericalInclusion,self).__init__()
         self.flshowplot = False
@@ -39,13 +39,14 @@ class Geometry_SphericalInclusion(Geometry_Base):
     # \param[in] radMin, float default 0.0; minimum sphere/circle radius to sample
     # \param[in] radAve, float; numerical input, currently either radius of all spheres or free parameter to exponential distribution of radii
     # \param[in] radMax, float default np.inf; maximum sphere/circle radius to sample
-    # \param[in] matSphProbs, list of floats; probability of each material type within spheres
-    # \param[in] matMatrix, int; material index of matrix material
+    # \param[in] sphereMatProbs, list of floats; probability of each material type within spheres
     # \param[in] xperiodic, bool default False; geometry is periodic in the x direction
     # \param[in] yperiodic, bool default False; geometry is periodic in the y direction
     # \param[in] zperiodic, bool default False; geometry is periodic in the z direction
     # \returns sets several parameters to describe spherical/circlular inclusion sampling
-    def defineMixingParams(self,sphereFrac,sizeDistribution,radMin,radAve,radMax,matSphProbs=None,matMatrix=None,xperiodic=False,yperiodic=False,zperiodic=False):
+    def defineMixingParams(self,sphereFrac,sizeDistribution,radMin,radAve,radMax,sphereMatProbs=None,xperiodic=False,yperiodic=False,zperiodic=False):
+        if not hasattr(self, "nummats"): self.nummats = len(sphereMatProbs)+1
+        assert self.nummats == len(sphereMatProbs)+1
         assert isinstance(sphereFrac,float) and sphereFrac>0.0 and sphereFrac<1.0
         self.sphereFrac = sphereFrac
 
@@ -65,19 +66,18 @@ class Geometry_SphericalInclusion(Geometry_Base):
         if sizeDistribution=='Uniform'    : self.distribution = scipy.stats.uniform(loc=self.radMin, scale=self.radMax)
         if sizeDistribution=='Exponential': self.distribution = scipy.stats.expon(                   scale=self.radAve)
 
-        assert isinstance(matSphProbs,list) and np.sum(matSphProbs)==1.0
-        for prob in matSphProbs: assert isinstance(prob,float) and prob>=0.0 and prob<=1.0
-        assert isinstance(matMatrix,int) and matMatrix>=0
-        self.matSphProbs = matSphProbs
-        self.matMatrix   = matMatrix
+        assert isinstance(sphereMatProbs,list) and np.sum(sphereMatProbs)==1.0
+        for prob in sphereMatProbs: assert isinstance(prob,float) and prob>=0.0 and prob<=1.0
+        self.sphereMatProbs = sphereMatProbs
         
         assert isinstance(xperiodic,bool) and isinstance(yperiodic,bool) and isinstance(zperiodic,bool)
         self.xperiodic = xperiodic
         self.yperiodic = yperiodic
         self.zperiodic = zperiodic
-        
-        self.prob        = np.multiply(sphereFrac,matSphProbs) #prepare material abundances (matrix, sphere type 1, sphere type 2, etc.)
-        self.prob[0]     = 1.0 - sphereFrac  
+
+        self.prob      = np.multiply(sphereFrac,sphereMatProbs) 
+        self.prob      = np.insert(self.prob, 0, 1.0 - sphereFrac)
+
 
     ## \brief Defines parameters for geometry generation
     #
@@ -123,30 +123,25 @@ class Geometry_SphericalInclusion(Geometry_Base):
         self.gridSize= gridSize
 
         if   sphSampleModel=='NoGrid'     :
-            self.samplePoint         = self._samplePointNoGrid
             self.generateRandomPoint = self._generateRandomPoint
             self.checkSphereOverlap  = self._checkSphereOverlapNoGrid            
         elif sphSampleModel=='GenericGrid':
-            self.samplePoint         = self._samplePointGrid
             self.generateRandomPoint = self._generateRandomPoint
             self.checkSphereOverlap  = self._checkSphereOverlapGrid
             self.addSphereToBins     = self._addSphereToBinsGrid                
         elif sphSampleModel=='FastRSA'    :
-            self.samplePoint         = self._samplePointGrid
             self.generateRandomPoint = self._generateRandomPointFastRSA
             self.checkSphereOverlap  = self._checkSphereOverlapGridFastRSA
             self.addSphereToBins     = self._addSphereToBinsFastRSA
 
+    ## \brief Samples spherical inclusion realization, voxelizes if selected
+    #
+    # \returns initializes self.Centers and self.MatInds; sets self.samplePoint; and voxelizes if selected
+    def _initializeSampleGeometryMemory(self):   
         self.lx = self.xbounds[1]-self.xbounds[0]
         self.ly = self.ybounds[1]-self.ybounds[0]
         self.lz = self.zbounds[1]-self.zbounds[0]
-
-
-    ## \brief Samples spherical inclusion realization according to user-specified options   
-    #
-    # \returns initializes self.Centers and self.MatInds 
-    def _initializeSampleGeometryMemory(self):   
-
+        
         self._sampleSphereRadii()
         if self.sphSampleModel in {'GenericGrid','FastRSA'}: self._setupGrid()
         
@@ -177,8 +172,16 @@ class Geometry_SphericalInclusion(Geometry_Base):
         
         # sample what material in each sphere according to user specified average material abundance in spheres
         self.MatInds   = []
+        sphereMatChoices = np.arange(1, len(self.sphereMatProbs)+1)
         for _ in range(0,len(self.Radii)):
-            self.MatInds.append( self.Rng.choice(p=self.matSphProbs) )
+            self.MatInds.append(sphereMatChoices[self.Rng.choice(p=self.sphereMatProbs)])
+        self.MatInds = np.array(self.MatInds)
+
+        # set samplePoint
+        if   self.sphSampleModel ==  'NoGrid'                : self.samplePoint = self._samplePointNoGrid
+        elif self.sphSampleModel in {'GenericGrid','FastRSA'}: self.samplePoint = self._samplePointGrid
+        # is selected, turn into voxel format
+        if self.flVoxelize: self.voxelizeGeometry()
 
 
 
@@ -277,16 +280,15 @@ class Geometry_SphericalInclusion(Geometry_Base):
         distances = np.sqrt(dx**2 + dy **2 + dz**2)
         overlapIndices  = np.where(self.Radii > distances)[0]
         if len(overlapIndices) > 0: self.CurrentMatInd = self.MatInds[overlapIndices[0]]
-        else                      : self.CurrentMatInd = self.matMatrix
+        else                      : self.CurrentMatInd = 0
 
     ## \brief Returns material at specified location, using a grid
     #
     # \returns material type of location.
     def _samplePointGrid(self):        
-        sphere_index = self.checkSphereOverlap(self.Part.x, self.Part.y, self.Part.z, 0)       
+        sphere_index = self.checkSphereOverlap(self.Part.x, self.Part.y, self.Part.z, 0)
         if sphere_index >= 0: self.CurrentMatInd = self.MatInds[sphere_index]
-        else                : self.CurrentMatInd = self.matMatrix
-
+        else                : self.CurrentMatInd = 0
 
     ## \brief Adds sphere to bins that it could potentially overlap
     #
@@ -621,6 +623,7 @@ class Geometry_SphericalInclusion(Geometry_Base):
         plt.xlim( self.xbounds[0], self.xbounds[1]);  plt.ylim( self.ybounds[0], self.ybounds[1])
         if self.flsaveplot == True: plt.savefig(''+str(self.geomtype)+'_'+str(self.Part.numDims)+'D_Case-name-_Part'+str(ipart+1)+'.png')
         if self.flshowplot == True: plt.show()
+
     def solveMaterialTypeFractions(self,numbins,Rng,numSampPerBin):
         assert isinstance(numbins,int) and numbins>0
         assert isinstance(numSampPerBin,int) and numSampPerBin>0
@@ -636,3 +639,32 @@ class Geometry_SphericalInclusion(Geometry_Base):
                 self.samplePoint()
                 self.MatFractions[self.CurrentMatInd,ibin] += 1
         self.MatFractions = np.divide(self.MatFractions,numSampPerBin)
+
+    ## \brief Returns material at specified set of points
+    #
+    # This is a vectorized way to get material indices at a series of points in a geometry.
+    # The primary intended use of this function is for fast voxelization. The vectorization across
+    # many points does not use grids regardless of how the structure was generated; this sacrifices potential
+    # efficiency of grid searches in favor of efficiency of vectorization across many points
+    #
+    # \param [in] points, NX3 numpy array of point coordinates, where N is number of points
+    #
+    # \returns material types at point locations
+    def samplePointsFast(self, points):
+        dx = self.Centers[:,0].reshape((-1,1))-points[:,0].reshape((1,-1))                   
+        if self.xperiodic: #Set distance to nearest periodic image, aka Minimum Image Convention
+            dx = dx - np.int32(2*dx/self.lx)*self.lx                    
+
+        dy = self.Centers[:,1].reshape((-1,1))-points[:,1].reshape((1,-1))                         
+        if self.yperiodic:
+            dy = dy - np.int32(2*dy/self.ly)*self.ly                    
+
+        dz = self.Centers[:,2].reshape((-1,1))-points[:,2].reshape((1,-1))      
+        if self.zperiodic:
+            dz = dz - np.int32(2*dz/self.lz)*self.lz                    
+        
+        distances = np.sqrt(dx**2 + dy **2 + dz**2)
+        indices_of_particles, indices_of_points = np.where(distances < self.Radii.reshape((-1,1)))
+        materials = np.zeros_like(points[:,0])
+        materials[indices_of_points] = self.MatInds[indices_of_particles]
+        return materials

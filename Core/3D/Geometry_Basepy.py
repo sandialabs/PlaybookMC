@@ -27,9 +27,17 @@ class Geometry_Base(ClassTools):
         assert isinstance(xbounds,list) and isinstance(ybounds,list) and isinstance(zbounds,list)
         assert len(xbounds)==2 and len(ybounds)==2 and len(zbounds)==2
         assert isinstance(xbounds[0],float) and isinstance(xbounds[1],float) and xbounds[0]<=xbounds[1]
-        if self.Part.numDims<2: assert xbounds[0]==-np.inf and xbounds[1]==np.inf
-        assert isinstance(ybounds[0],float) and isinstance(ybounds[1],float) and ybounds[0]<=ybounds[1]
-        if self.Part.numDims<3: assert ybounds[0]==-np.inf and ybounds[1]==np.inf
+        if xbounds[0]==-np.inf and xbounds[1]==np.inf and ybounds[0]==-np.inf and ybounds[1]==np.inf:
+            self.numDims = 1
+        elif ybounds[0]==-np.inf and ybounds[1]==np.inf:
+            self.numDims = 2
+        else:
+            self.numDims = 3        
+
+        if hasattr(self, 'Part'):
+            assert self.numDims == self.Part.numDims
+        
+        assert isinstance(ybounds[0],float) and isinstance(ybounds[1],float) and ybounds[0]<=ybounds[1]        
         assert isinstance(zbounds[0],float) and isinstance(zbounds[1],float) and zbounds[0]<=zbounds[1]
         if self.GeomType=='Markovian':
             if not ( xbounds[0]==ybounds[0] and xbounds[0]==zbounds[0] and xbounds[1]==ybounds[1] and xbounds[1]==zbounds[1] and -xbounds[0]==xbounds[1] ):
@@ -40,8 +48,9 @@ class Geometry_Base(ClassTools):
         self.zbounds = zbounds
 
         self.Volume = self.zbounds[1]-self.zbounds[0]
-        if self.Part.numDims>=2: self.Volume *= (self.xbounds[1]-self.xbounds[0])
-        if self.Part.numDims==3: self.Volume *= (self.ybounds[1]-self.ybounds[0])
+        
+        if self.numDims>=2: self.Volume *= (self.xbounds[1]-self.xbounds[0])
+        if self.numDims==3: self.Volume *= (self.ybounds[1]-self.ybounds[0])
 
 
     ## \brief Define boundary conditions
@@ -52,7 +61,7 @@ class Geometry_Base(ClassTools):
         assert isinstance(xBCs,list) and isinstance(yBCs,list) and isinstance(zBCs,list)
         assert len(xBCs)==2 and len(yBCs)==2 and len(zBCs)==2
 
-        if self.Part.numDims<2: assert xBCs[0]==None and xBCs[1]==None
+        if self.numDims<2: assert xBCs[0]==None and xBCs[1]==None
         else                  :
             assert xBCs[0]=='vacuum' or xBCs[0]=='reflective'
             assert xBCs[1]=='vacuum' or xBCs[1]=='reflective'
@@ -77,7 +86,8 @@ class Geometry_Base(ClassTools):
     # \returns sets cross sections
     def defineCrossSections(self,totxs=None,scatxs=None):
         assert isinstance(totxs,list)
-        self.nummats = len(totxs)
+        if not hasattr(self, "nummats"): self.nummats = len(totxs)
+        assert self.nummats==len(totxs)
         for i in range(0,self.nummats):
             assert isinstance(totxs[i],float) and totxs[i]>=0.0
         self.totxs = totxs
@@ -107,6 +117,8 @@ class Geometry_Base(ClassTools):
     # \returns initializes self.Part
     def associatePart(self,Part):
         assert isinstance(Part,Particle)
+        if hasattr(self, "numDims"):
+            assert self.numDims == Part.numDims
         self.Part = Part
 
     ## \brief Tests for a leakage or boundary reflection event, flags the first, evaluates the second
@@ -169,7 +181,7 @@ class Geometry_Base(ClassTools):
     # pseudocode: if woodcock, sample whether or not it is accepted. If it's not woodcock,
     # we just want to sample absorb or scatter. Will also do that if collision is accepted for woodcock.
     def evaluateCollision(self):
-        if self.trackingType == "Woodcock": # is there a way to tell that we are using woodcock tracking at this point in the code??? If not, I think I need two functions
+        if self.trackingType == "Woodcock":
             self.samplePoint() #define new point
             if self.Rng.rand()>self.totxs[self.CurrentMatInd]/self.Majorant: return 'reject' #accept or reject potential collision
         return 'absorb' if self.Rng.rand()>self.scatrat[self.CurrentMatInd] else 'scatter' #choose collision type

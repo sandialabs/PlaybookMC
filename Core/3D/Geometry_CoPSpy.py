@@ -4,16 +4,13 @@ from Geometry_Basepy import Geometry_Base
 sys.path.append('/../../Classes/Tools')
 from ClassToolspy import ClassTools
 from MarkovianInputspy import MarkovianInputs
+from CPF_MarkovianIndependentContribspy import CPF_MarkovianIndependentContribs
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
 
 ## \brief Multi-D CoPS geometry class
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
-#
-# A good chunk of what is in here would be general for geometries as well.
-# Perhaps in the future those aspects should be abstracted a layer out
-# and this class and other geometry classes should inherit from that one.
 #
 class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
     def __init__(self):
@@ -46,19 +43,6 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
         self.LongTermPoints  = []
         self.LongTermMatInds = []
 
-    ## \brief Defines mixing parameters (chord lengths and probabilities)
-    #
-    # \param[in] lam, list of floats, list of chord lengths
-    # \returns sets chord length, probabilities, correlation length, seed locations
-    def defineMixingParams(self,lam=None):
-        # Assert material chord lengths and slab length and store in object
-        assert isinstance(lam,list) and len(lam)==self.nummats
-        for i in range(0,self.nummats): assert isinstance(lam[i],float) and lam[i]>0.0
-        self.lam = lam
-
-        # Solve and store material probabilities and correlation length
-        self.solveNaryMarkovianParamsBasedOnChordLengths(self.lam)
-
     ## \brief Samples material index of new point, and stores or forgets new point, according to selected rules
     #
     # Calls other method to solve conditional probabilities of material index at new point based on previously
@@ -80,11 +64,6 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
             if len(self.RecentMatInds) > self.recentMemory:                                                              #if recent memory now too long, delete oldest point
                 del self.RecentPoints[0]
                 del self.RecentMatInds[0]
-
-
-
-
-
 
     ## \brief Makes 2D plot of CoPS geometry
     #
@@ -123,27 +102,37 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
         self.flsaveplot = flsaveplot    
 
 
-    ## \brief Defines the function or method to be used to evaluate conditional probabilities based on governing points
+#########################################################################################################################################
+    ## \brief Sets method to choose governing points and conditional probability function evaluator
     #
-    # \param[in] conditionalProbEvaluator, function or method, function or method to call when using governing points to give probabilities
-    # \returns sets chord length, probabilities, correlation length, seed locations
-    def defineConditionalProbabilityEvaluator(self,conditionalProbEvaluator=None):
-        assert callable(conditionalProbEvaluator) or conditionalProbEvaluator==None
-        if conditionalProbEvaluator==None or conditionalProbEvaluator==self.computeConditionalProbabilitiesFromGoverningPointsUsingPseudoInterfaces:
-            self.conditionalProbEvaluator = self.computeConditionalProbabilitiesFromGoverningPointsUsingPseudoInterfaces
-        else                             :
-            self.conditionalProbEvaluator = conditionalProbEvaluator
-            #Brief test of chosen function (does not test all circumstances)
-            try:
-                testcondprobs = self.conditionalProbEvaluator( [0.0,0.0,0.0], [[0.1,0.3,0.5],[-0.3,2.4,3.0]], [0,1], [1.0/self.nummats]*self.nummats)
-            except:
-                assert 0==1#raise("Invalid conditional probability evaluator provided")
-            assert len(testcondprobs)==self.nummats
-            assert isinstance(testcondprobs[0],float) and isinstance(testcondprobs[1],float)
-            for imat in range(0,self.nummats):
-                assert testcondprobs[imat]>=0.0 and testcondprobs[imat]<=1.0
-            assert self.isclose(np.sum(testcondprobs),1.0)
+    # \param[in] conditionalProbEvaluator, str, 'MarkovianIndependentContribs'--other options expected soon
+    # \returns sets self.selectGoverningPoints and self.CPF
+    def defineConditionalProbabilityEvaluator(self,conditionalProbEvaluator='MarkovianIndependentContribs'):
+        self.selectGoverningPoints = self.selectGoverningPointsPI
+        if conditionalProbEvaluator=='MarkovianIndependentContribs': self.CPF = CPF_MarkovianIndependentContribs()
+        else                                                       : assert 1==0
 
+    ## \brief Veneer to interface with method of the CPF class method of the same name
+    # \returns passes params to method of the CPF class of the same name
+    def defineMixingParams(self,*args):
+        self.CPF.defineMixingParams(args)
+        self.prob = self.CPF.prob[:]
+        self.lam  = self.CPF.lam[:]
+
+    ## \brief Finds governing points and solves conditional probabilities (approximation to true conditional probability function)
+    #
+    # Responsible for calling method to downselect from points to choose governing points (if necessary) and
+    # responsible for calling function/method to provide conditional probabilities based on governing points.
+    #
+    # \returns sets self.condprob list of floats, probabilities of selecting each material type
+    def solveConditionalProbabilities(self):
+        #If need to, select governing points
+        if len(self.LongTermPoints)+len(self.RecentPoints)==0 or self.maxNumPoints==0: self.condprobs = self.prob[:]; return                                                                                          #If no points defined yet or user chose not to depend on points, use material abundances
+        else                                                                         : self.selectGoverningPoints()                                                                                                   #Else use the downselection scheme to select the governing points
+        #Use governing points to evaluate conditional probabilities
+        if len(self.govpoints)==0                                                    : self.condprobs = self.prob[:]; return                                                                                          #If no points are governing points (i.e., all points beyond user-defined maxiumum distance), use material abundances
+        else                                                                         : self.condprobs = self.CPF.returnConditionalProbabilities([self.Part.x,self.Part.y,self.Part.z],self.govpoints,self.govmatinds) #Else use the selected governing points to compute conditional probabilities
+#########################################################################################################################################
 
     ## \brief User specifies conditional sampling parameters
     #
@@ -197,18 +186,12 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
     # or to make sure no sampled points are saved to short- or long-term memory, for exmaple by 
     # setting recentMemory to 0 and flLongTermMemory to False.
     #
-    # 1DEmulation enables 3D CoPS to get 1D planar geometry CoPS results, but currently only works
-    # for CoPSp-1 (i.e., recentMemory=1 and flLongTermMemory=False) and for a source oriented to 
-    # travel in the z direction.
-    #
     # \param[in] geomtype str, 'Markovian', 'AM'
-    # \param[in] fl1DEmulation bool, True will only allow material to change along z-dimension (emulates 1D slab behavior)
-    # \returns sets self.geomtype and self.fl1DEmulation
-    def defineCoPSGeometryType(self,geomtype,fl1DEmulation=False):
+    # \returns sets self.geomtype
+    def defineCoPSGeometryType(self,geomtype):
         assert geomtype=='Markovian' or geomtype=='AM'
         self.geomtype = geomtype
-        assert hasattr(self, 'lamc')
-        assert isinstance(fl1DEmulation,bool)
+        #assert hasattr(self, 'lamc')
         #if using atomic mix CoPS, create single material with infinite correlation length
         if self.geomtype=='AM':
             assert hasattr(self, 'maxNumPoints')
@@ -222,8 +205,6 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
             self.lam     = [100000.0]
             self.lamc    =  100000.0
             self.prob    = [ 1.0 ]
-        if fl1DEmulation==True: assert geomtype=='Markovian'
-        self.fl1DEmulation = fl1DEmulation
 
     ## \brief Tests whether candidate points should be excluded based on governing points
     #
@@ -263,7 +244,7 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
     # point or exclude.
     #
     # \returns sets self.govpoints and self.govmatinds, governing points and their material indices
-    def selectGoverningPoints(self):
+    def selectGoverningPointsPI(self):
         #compute distance from new point to each pre-existing point in long-term and recent memory
         allpoints = np.asarray( self.LongTermPoints[:] + self.RecentPoints[:] )
         allmatinds=            self.LongTermMatInds[:] + self.RecentMatInds[:]
@@ -280,7 +261,7 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
             if self.distNearestPoint>=self.maxDistance: break #stop the search for governing points if next nearest point too far (will trigger if all points already searched since value will be np.inf)
 
             #add candidate point to governing point list, exclude points based on it
-            self.govpoints.append(   allpoints[idmin][:] )
+            self.govpoints.append(   list(allpoints[idmin][:]) )
             self.govmatinds.append( allmatinds[idmin]    )
             self.govdists.append(    distances[idmin]    )
 
@@ -300,164 +281,6 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
                 if distances[ipt]<np.inf:
                     if self.testForExclusion( allpoints[ipt][:],distances[ipt],exclusionAngle ): distances[ipt] = np.inf
                 
-
-    ## \brief Returns frequency of at least one psuedo-interface between two points in a Markovian-mixed medium
-    #
-    # \param[in] igovpt int, which governing point to compute the probability with regard to
-    # \returns float, probability of having at least one pseudo-interface
-    def freqAtLeastOnePseudointerface_Markovian(self,igovpt):
-        if not self.fl1DEmulation: return 1.0 - np.exp( - self.govdists[igovpt]                        / self.lamc )
-        else                     : return 1.0 - np.exp( - self.govdists[igovpt] * np.abs(self.Part.mu) / self.lamc )
-
-    ## \brief Computes conditional probabilities from governing points
-    #
-    # \returns sets condprob list of floats, probabilities of selecting each material type
-    def computeConditionalProbabilitiesFromGoverningPointsUsingPseudoInterfaces(self,locpoint,govpoints,govmatinds,abundprob):
-        compliments = np.ones( self.nummats )
-        #for loop through governing points, collect compliments of new point in same region as each material type
-        for igovpt in range(0,len(govpoints)):
-            imat = govmatinds[igovpt]
-            compliments[imat] *= self.freqAtLeastOnePseudointerface_Markovian(igovpt)
-        #compute fraction of combination space for which new point is not in the same cell as any governing points
-        frac_newregion = np.prod( compliments )
-        #compute fraction of combination space for which new point is in the same cell as governing points of each type
-        frac_sameregion = []
-        for imat in range(0,self.nummats):
-            frac_sameregion.append( frac_newregion/compliments[imat] - frac_newregion )
-        #compute probability of sharing cell with no governing point or governing point(s) of each type
-        frac_valid = np.sum(frac_sameregion) + frac_newregion
-        prob_newregion = frac_newregion / frac_valid
-        prob_sameregion= np.divide(frac_sameregion,frac_valid)
-        #compute probabilities of sampling each material type
-        return np.add( prob_sameregion, np.multiply(prob_newregion,abundprob) )
-
-
-    ## \brief Computes conditional probabilities from governing points using CoPS-2 errorless CPF
-    #
-    # \returns sets condprob list of floats, probabilities of selecting each material type
-    def computeConditionalProbabilitiesErrorless(self,locpoint,govpoints,govmatinds,abundprob):
-        # if there are 2 points, we want to do the full thing. Otherwise, I think we want to just use the other function
-        if len(self.govdists) != 2:
-            return computeConditionalProbabilitiesFromGoverningPointsUsingPseudoInterfaces(locpoint,govpoints,govmatinds,abundprob)
-        #get distances in order to compute probabilities
-        imat = govmatinds[igovpt]
-        ra = self.govdists[0]
-        rb = self.govdists[1]
-        rc = np.sqrt((self.govpoints[0][0] - self.govpoints[1][0])**2 + (self.govpoints[0][1] - self.govpoints[1][1])**2 + (self.govpoints[0][2] - self.govpoints[1][2])**2) #distance formula
-        ## Calculate probabilities of no material interface along a single side
-        Pa = np.exp(-ra/self.lamc)
-        Pb = np.exp(-rb/self.lamc)
-        Pc = np.exp(-rc/self.lamc)
-        ## Probabilities of no material interface along two sides (derived)
-        Pab = np.sqrt(Pa*Pb/Pc)
-        Pac = np.sqrt(Pa*Pc/Pb)
-        Pbc = np.sqrt(Pb*Pc/Pa)
-        ## Probabilities of various triangle configurations
-        ## In order: none, ab, ac, bc, rest
-        P1 = Pab*Pac*Pbc
-        P2 = Pac*Pbc - P1
-        P3 = Pab*Pbc - P1
-        P4 = Pab*Pac - P1
-        P5 = 1 - (P1 + P2 + P3 + P4)
-        config_probs = {}
-        ## Calculate probabilities of each material configuration
-        ## Below is from CoPS3PO in 1D. I think we need to add an extra material configuration, probABA. 
-        ## I can email you a pdf scan of my work on figuring out which triangle is which. Hopefully it's right
-        condprobs = []
-        for imat in range(0,self.nummats):
-            if       mat1==imat and     imat==mat2: condprobs.append( self._probAAA(self.prob[imat],P1,P2,P3,P4,P5) )
-            elif     mat1==imat and not imat==mat2: condprobs.append( self._probAAB(self.prob[imat],self.prob[mat2],P1,P2,P3,P4,P5) )
-            elif not mat1==imat and     imat==mat2: condprobs.append( self._probBAA(self.prob[imat],self.prob[mat1],P1,P2,P3,P4,P5) )
-            elif not mat1==imat and not imat==mat2: condprobs.append( self._probABC(self.prob[mat1],self.prob[imat],self.prob[mat2],P1,P2,P3,P4,P5) )
-        condprobs = np.divide( condprobs, np.sum(condprobs) )
-
-        ## Everything below here is a remnant of the CompareStencilAnswers script, it may or may not be needed
-        probsum = 0
-        if mat1 == mat2 and mat2 == mat3:
-                probsum += probs[mat1] * P1
-        if mat1 == mat2:
-                probsum += probs[mat1]*probs[mat3] * P4
-        if mat1 == mat3:
-                probsum += probs[mat1]*probs[mat2] * P2
-        if mat2 == mat3:
-                probsum += probs[mat2]*probs[mat1] * P3
-        probsum += probs[mat1]*probs[mat2]*probs[mat3] * P5
-        config_probs[govmatinds[0],govmatinds[1],mat3] = probsum
-        # we want this to return a list the length of nummats with conditional probabilities inside I think
-			
-
-        return condprobs
-
-
-    ## \brief Returns the conditional probability of having alpha, alpha, alpha (AAA)
-    #
-    # For 3 point correlations only 
-    #
-    # \param[in] pa, probability of material alpha
-    # \param[in] r1, float, distance from first nearest point
-    # \param[in] r2, float, distance from second nearest point
-    def _probAAA(self,pa,r1,r2):
-        paaa_0int = pa    * self._ComputePseudoFreq(r1,'zero') * self._ComputePseudoFreq(r2,'zero')
-        paaa_1int = pa**2 * self._ComputePseudoFreq(r1,'atleastone') * self._ComputePseudoFreq(r2,'zero') + pa**2 * self._ComputePseudoFreq(r1,'zero') * self._ComputePseudoFreq(r2,'atleastone')
-        paaa_2int = pa**3 * self._ComputePseudoFreq(r1,'atleastone') * self._ComputePseudoFreq(r2,'atleastone')
-        return paaa_0int + paaa_1int + paaa_2int
-
-    ## \brief Returns the conditional probability of having alpha, alpha, beta (AAB)
-    #
-    # For 3 point correlations only 
-    #
-    # \param[in] pa, probability of material alpha
-    # \param[in] pb, probability of material beta
-    # \param[in] r1, float, distance from first nearest point
-    # \param[in] r2, float, distance from second nearest point
-    def _probAAB(self,pa,pb,r1,r2):
-        paab_1int = pa    * pb * self._ComputePseudoFreq(r1,'zero'      ) * self._ComputePseudoFreq(r2,'atleastone')
-        paab_2int = pa**2 * pb * self._ComputePseudoFreq(r1,'atleastone') * self._ComputePseudoFreq(r2,'atleastone')
-        return paab_1int + paab_2int
-
-    ## \brief Returns the conditional probability of having beta, alpha, alpha (BAA)
-    #
-    # For 3 point correlations only 
-    #
-    # \param[in] pa, probability of material alpha
-    # \param[in] pb, probability of material beta
-    # \param[in] r1, float, distance from first nearest point
-    # \param[in] r2, float, distance from second nearest point
-    def _probBAA(self,pa,pb,r1,r2):
-        pbaa_1int = pa    * pb * self._ComputePseudoFreq(r1,'atleastone') * self._ComputePseudoFreq(r2,'zero')
-        pbaa_2int = pa**2 * pb * self._ComputePseudoFreq(r1,'atleastone') * self._ComputePseudoFreq(r2,'atleastone')
-        return pbaa_1int + pbaa_2int
-
-    ## \brief Returns the conditional probability of having alpha, beta, gamma (ABC)
-    #
-    # For 3 point correlations only
-    # Also covers for the case of alpha, beta, alpha
-    #
-    # \param[in] pa, probability of material alpha
-    # \param[in] pb, probability of material beta
-    # \param[in] pc, probability of material gamma
-    # \param[in] r1, float, distance from first nearest point
-    # \param[in] r2, float, distance from second nearest point
-    def _probABC(self,pa,pb,pc,r1,r2):
-        pabc_2int = pa * pb * pc * self._ComputePseudoFreq(r1,'atleastone') * self._ComputePseudoFreq(r2,'atleastone')
-        return pabc_2int
-
-
-    ## \brief Finds governing points and solves conditional probabilities (approximation to true conditional probability function)
-    #
-    # Responsible for calling method to downselect from points to choose governing points (if necessary) and
-    # responsible for calling function/method to provide conditional probabilities based on governing points.
-    #
-    # \returns sets self.condprob list of floats, probabilities of selecting each material type
-    def solveConditionalProbabilities(self):
-        #If need to, select governing points
-        if len(self.LongTermPoints)+len(self.RecentPoints)==0 or self.maxNumPoints==0: self.condprobs = self.prob[:]; return                                                                                          #If no points defined yet or user chose not to depend on points, use material abundances
-        else                                                                         : self.selectGoverningPoints()                                                                                                   #Else use the downselection scheme to select the governing points
-        #Use governing points to evaluate conditional probabilities
-        if len(self.govpoints)==0                                                    : self.condprobs = self.prob[:]; return                                                                                          #If no points are governing points (i.e., all points beyond user-defined maxiumum distance), use material abundances
-        else                                                                         : self.condprobs = self.conditionalProbEvaluator([self.Part.x,self.Part.y,self.Part.z],self.govpoints,self.govmatinds,self.prob) #Else use the selected governing points to compute conditional probabilities
-
-
     ## \brief Select whether to collect and print points CoPS creates
     #
     # \param[in] flCollectPoints bool, default False, Collect geometry points?

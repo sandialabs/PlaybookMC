@@ -14,7 +14,6 @@ from MonteCarloParticleSolverpy import MonteCarloParticleSolver
 from Particlepy import Particle
 from Geometry_SphericalInclusionpy import Geometry_SphericalInclusion
 import pandas as pd
-import os
 
 #Prepare inputs
 numparticles  = 200
@@ -28,6 +27,8 @@ volfrac       = '0.20'     #'0.05','0.10','0.15','0.20','0.25','0.30'; volume fr
 sphSampleModel= 'FastRSA'   #'NoGrid', 'GenericGrid', or 'FastRSA'
 abundanceModel= 'ensemble' #'ensemble' or 'sample'
 numtalbins    = 20
+flVoxelize    = False   #turn realizations into voxel versions of themselves?
+numVoxels     = [10]*3  #number of voxels in each of three directions
 
 #Load problem parameters
 CaseInp = SphericalInclusionInputs()
@@ -58,9 +59,10 @@ Geom.defineGeometryBoundaries(xbounds=[-Geomsize/2,Geomsize/2],ybounds=[-Geomsiz
 Geom.defineBoundaryConditions(xBCs=['reflective','reflective'],yBCs=['reflective','reflective'],zBCs=['vacuum','vacuum'])
 Geom.defineCrossSections(totxs=CaseInp.Sigt[:],scatxs=CaseInp.Sigs[:])
 Geom.defineMixingParams(sphereFrac=CaseInp.sphereFrac,radMin=CaseInp.radMin,radAve=CaseInp.radAve,radMax=CaseInp.radMax,
-                        sizeDistribution=CaseInp.sizeDistribution,matSphProbs=CaseInp.matSphProbs,
-                        matMatrix=CaseInp.matMatrix,xperiodic=False,yperiodic=False,zperiodic=False)
+                        sizeDistribution=CaseInp.sizeDistribution,sphereMatProbs=CaseInp.sphereMatProbs,
+                        xperiodic=False,yperiodic=False,zperiodic=False)
 Geom.defineGeometryGenerationParams(maxPlacementAttempts=10000, sphSampleModel=sphSampleModel, gridSize=None)
+Geom.defineVoxelizationParams(flVoxelize=flVoxelize,numVoxels=numVoxels)
 
 #Instantiate and associate the general Monte Carlo particle solver
 NDMC = MonteCarloParticleSolver(numpartsample)
@@ -93,4 +95,4 @@ NDMC.returnAbsorptionRuntimeAnalysis(flVerbose=True,NumStatPartitions=numpartiti
 print()
 NDMC.returnRuntimeValues(flVerbose=True)
 
-#NDMC.plotFlux(flMaterialDependent=True)
+NDMC.plotFlux(flMaterialDependent=True)

@@ -28,7 +28,7 @@ class SphericalInclusionInputs(object):
     # \param[in] CaseNumber str, number designation, i.e., '1', '2', '3'
     # \param[in] CaseVolFrac str, volume fraction, i.e., '0.05','0.10','0.15','0.20','0.25','0.30'
     # \param[in] sizeDistribution, string; 'Constant','Uniform','Exponential' the distribution of radii (can add any of the distributions in scipy.stats, currently these three available)
-    # \returns solves for and sets Sigt, Scatrat, Sigs, matSphProbs, matMatrix, sphereFrac, lam, radAve, radMin, radAve, and radMax as attributes 
+    # \returns solves for and sets Sigt, Scatrat, Sigs, sphereMatProbs, sphereFrac, lam, radAve, radMin, radAve, and radMax as attributes 
     def selectBMInputs(self, CaseNumber=None, CaseVolFrac=None, sizeDistribution=None ):
         assert isinstance(CaseNumber,str)
         assert CaseNumber in {'1','2','3'}
@@ -41,8 +41,7 @@ class SphericalInclusionInputs(object):
         self.Scatrat = [0.9      ,0.9       ]
         self.Sigs = list( np.multiply( self.Sigt, self.Scatrat ) )
 
-        self.matSphProbs = [0.0,1.0] #this means that there is 100% probability each sphere contains material with index one
-        self.matMatrix   = 0         #this means that material with index zero is the matrix material
+        self.sphereMatProbs = [1.0] #this means that there is 100% probability each sphere contains material with index 1 (index 0 is matrix material)
 
         if   CaseNumber=='1': self.solveSphericalInclusionParamsBasedOnSphereAveChordLength(sphereFrac=float(CaseVolFrac),sphereLam=11/40)
         elif CaseNumber=='2': self.solveSphericalInclusionParamsBasedOnSphereAveChordLength(sphereFrac=float(CaseVolFrac),sphereLam=11/20)
