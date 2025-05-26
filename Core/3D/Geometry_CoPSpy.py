@@ -4,6 +4,7 @@ from Geometry_Basepy import Geometry_Base
 sys.path.append('/../../Classes/Tools')
 from ClassToolspy import ClassTools
 from MarkovianInputspy import MarkovianInputs
+from CPF_MarkovianAnalyticpy import CPF_MarkovianAnalytic
 from CPF_MarkovianIndependentContribspy import CPF_MarkovianIndependentContribs
 import numpy as np
 import matplotlib.pyplot as plt
@@ -105,12 +106,13 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
 #########################################################################################################################################
     ## \brief Sets method to choose governing points and conditional probability function evaluator
     #
-    # \param[in] conditionalProbEvaluator, str, 'MarkovianIndependentContribs'--other options expected soon
+    # \param[in] conditionalProbEvaluator, str, 'MarkovianAnalytic' or 'MarkovianIndependentContribs'
     # \returns sets self.selectGoverningPoints and self.CPF
-    def defineConditionalProbabilityEvaluator(self,conditionalProbEvaluator='MarkovianIndependentContribs'):
+    def defineConditionalProbabilityEvaluator(self,conditionalProbEvaluator=None):
         self.selectGoverningPoints = self.selectGoverningPointsPI
-        if conditionalProbEvaluator=='MarkovianIndependentContribs': self.CPF = CPF_MarkovianIndependentContribs()
-        else                                                       : assert 1==0
+        if   conditionalProbEvaluator=='MarkovianAnalytic'           : self.CPF = CPF_MarkovianAnalytic()
+        elif conditionalProbEvaluator=='MarkovianIndependentContribs': self.CPF = CPF_MarkovianIndependentContribs()
+        else : raise Exception("Please choose 'MarkovianAnalytic' or 'MarkovianIndependentContribs' for conditionalProbEvaluator")
 
     ## \brief Veneer to interface with method of the CPF class method of the same name
     # \returns passes params to method of the CPF class of the same name

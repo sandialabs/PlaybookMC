@@ -257,9 +257,7 @@ class MonteCarloParticleSolver(Tallies):
     ## \brief Simulates one particle using function-based Woodcock Monte Carlo solver. Intent: private.
     #
     # Simulates one particle history using geometry defined by a function which returns
-    # necessary radiation transport quantities.
-    # Currently uses normally incident beam source on left boundary and isotropic scattering
-    # and tallies transmittance, reflectance, and absorption.
+    # necessary radiation transport quantities and tallies transmittance, reflectance, and absorption.
     def _pushWMCParticle(self):
         mu = self._setParticleSourceAngle()
         x  = self._initializePosition()

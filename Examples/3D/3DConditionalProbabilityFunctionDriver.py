@@ -1,41 +1,61 @@
 #!usr/bin/env python
 ## \file 3DConditionalProbabilityFunctionDriver.py
-#  \brief Example driver script for evaluting point-wise conditional probability functions.
+#  \brief Example driver script for evaluting point-wise Probability functions.
 #  \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
 import sys
 sys.path.append('../../Core/Tools')
 sys.path.append('../../Core/3D')
+from MarkovianInputspy import MarkovianInputs
+from CPF_MarkovianAnalyticpy import CPF_MarkovianAnalytic
 from CPF_MarkovianIndependentContribspy import CPF_MarkovianIndependentContribs
-import numpy as np
 
 #Define mixing (assuming Markovian mixing model)
-lam = [0.7,0.5,0.3] #average material chord lengths
+Mark = MarkovianInputs()
+Mark.solveNaryMarkovianParamsBasedOnProbAndCorrLength(lamc=1.0,prob=[0.1,0.4,0.5]) #Note: Same mixing values as in 3DVoxelGeometryGenerationDriver
 
-#Set up CPF evaluator
+#Set up CPF evaluators
+CPF_Ana = CPF_MarkovianAnalytic()
+CPF_Ana.defineMixingParams((Mark.lam,))
 CPF_Ind = CPF_MarkovianIndependentContribs()
-CPF_Ind.defineMixingParams((lam,))
+CPF_Ind.defineMixingParams((Mark.lam,))
 
-
-#Test problem where Independent Contribs model expected to do pretty well (since points angularly far apart)
+#Set new point at origin and governing points to be material types 0, 1, and 2.
 new_pt_loc         =  [ 0, 0, 0]
-existing_pts_locs  = [[  1,  0,  0],[-1.2,0.1, 0],[ -1, -1,  0]]
 existing_pts_types = [[      0    ],[      1    ],[      2    ]]
-print("\n**** Original test problem ****")
-print("Conditional probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+
+#Solve conditional probabilities with various locations for three three governing points
+print("\n|------------------------------------ Easy problem variants --------------------------------------|")
+existing_pts_locs  = [[-2.0,  0,  0],[ 1.0,-1.0, 0],[ 1.0, 1.0, 0.0]]
+print("-- Points spread far apart")
+print("     Probs predicted by Analytic                  model:",CPF_Ana.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print("     Probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+
+existing_pts_locs  = [[-0.1,  0,  0],[ 1.0,-1.0, 0],[ 1.0, 1.0, 0.0]]
+print("\n-- One point near")
+print("     Probs predicted by Analytic                  model:",CPF_Ana.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print("     Probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+
+existing_pts_locs  = [[-2.0,  0,  0],[ 0.2,0.3, 0],[ 0.2,-0.4, 0.0]]
+print("\n-- Two points near, wide spacing")
+print("     Probs predicted by Analytic                  model:",CPF_Ana.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print("     Probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
 
 
-#Variation of test problem where Independent Contribs model gives same answer as original version but shouldn't
-#since the second point is largely behind the first, an effect this model does not account for
-new_pt_loc         =  [ 0, 0, 0]
-existing_pts_locs  = [[  1,  0,  0],[1.2,0.1,  0],[ -1, -1,  0]]
-existing_pts_types = [[      0    ],[      1    ],[      2    ]]
-print("\n**** Stressing problem variant ****")
-print("Conditional probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print("\n|---------------------------------- Moderate problem variant -------------------------------------|")
+existing_pts_locs  = [[-2.0,  0,  0],[ 0.3,0.15, 0],[ 0.4,-0.15, 0.0]]
+print("-- Two points near, moderate spacing")
+print("     Probs predicted by Analytic                  model:",CPF_Ana.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print("     Probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
 
 
-#Variation of test problem where Independent Contribs model expected to do pretty well (since points angularly far apart)
-new_pt_loc         =  [ 0, 0, 0]
-existing_pts_locs  = [[0.1,  0,  0],[-1.2,0.1, 0],[ -1, -1,  0]]
-existing_pts_types = [[      0    ],[      1    ],[      2    ]]
-print("\n**** Near proximity problem variant ****")
-print("Conditional probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print("\n|------------------------------------ Hard problem variants -------------------------------------|")
+existing_pts_locs  = [[-0.1,  0,  0],[ -0.11,0, 0],[ 1.0, 1.0, 0.0]]
+print("-- Two points near, one behind the other")
+print("     Probs predicted by Analytic                  model:",CPF_Ana.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print("     Probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+
+existing_pts_locs  = [[-0.1,  0,  0],[ -0.11,0.01, 0],[ -0.11, 0, 0.01]]
+print("\n-- All points near each other")
+print("     Probs predicted by Analytic                  model:",CPF_Ana.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print("     Probs predicted by Independent Contributions model:",CPF_Ind.returnConditionalProbabilities(new_pt_loc,existing_pts_locs,existing_pts_types))
+print()
