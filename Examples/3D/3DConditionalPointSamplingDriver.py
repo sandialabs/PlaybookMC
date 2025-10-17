@@ -11,18 +11,41 @@ sys.path.append('../../Core/3D')
 from MonteCarloParticleSolverpy import MonteCarloParticleSolver
 from Particlepy import Particle
 from Geometry_CoPSpy import Geometry_CoPS
+from Geometry_Markovianpy import Geometry_Markovian
+from VoxelSpatialStatisticspy import StatMetrics
 import numpy as np
-
+## Brief overview of CoPS
+# In Conditional Point Sampling (CoPS), particles are streamed through a stochastic medium using 
+# Woodcock/delta tracking.  The material at pseudo-collision sites, which are points in space, is
+# sampled according to a conditional probaiblity function (CPF), which is conditioned on geometric data,
+# typically on material abundance and material type at previously sampled points.  A unique CoPS variant
+# is defined by selecting
+#   1) which sampled points will be remembered and for how long to be used in future conditional
+#      evaluations (a memory scheme)
+#   2) which of the previously sampled points will be used in a particular conditional probability
+#      evaluation (a point-downselection scheme), and
+#   3) which model will be used to compute the conditional probability of a new point based on the
+#      downselected points (a CPF).
+# Several pre-packaged memory schemes and the CPFs currently implemented in PlaybookMC are available 
+# in this script by selecting values of CoPS_Memory and CoPS_CPF.  Typical point-downselection 
+# options are chosen in this script based on these values.  These are meant to serve as examples of 
+# defining CoPS variants from which a user can select whatever selection of values is of interest.
 
 #Prepare inputs
-numparticles  = 100
-numpartupdat  = 10
+numparticles  = 10000
+numpartupdat  = 1000
 numpartsample = 2   #with only short-term memory, batch size; with long-term memory, cohort size
 numpartitions = 5   #number of partitions of samples - used to provide r.v. statistical precision
-CoPSvariant   = 'higher-accuracy'  #'AM-accuracy', 'CLS-accuracy', 'moderate-accuracy', 'high-accuracy', or 'higher-accuracy' - CoPS has several free parameters that enable it to operate differently (as a different 'CoPS variant'). This variable enables easy user selection between five example CoPS variants that are described in a more detail where the variable is used.
+CoPS_Memory   = 'Recent-Memory'     #'Unconditional','Recent-Memory','Amnesia-Radius','Hybrid-Memory','Full-Memory'; Choose prepackaged CoPS memory scheme
+CoPS_CPF      = 'MarkovianAnalytic' #'MarkovianAnalytic','MarkovianCombination','MICK-Analytic','MICK-Numeric'; Choose CoPS conditional probability function (CPF)
 Geomsize      = 10.0  #Edge length of cubic 3D geometry
-case          = '1b'  #'1a','1b','1c','2a','2b','2c','3a','3b','3c'; Problem from Adams, Larsen, and Pomraning (ALP) benchmark set
+case          = '3a'  #'1a','1b','1c','2a','2b','2c','3a','3b','3c'; Problem from Adams, Larsen, and Pomraning (ALP) benchmark set
 numtalbins    = 8
+
+if CoPS_Memory not in {'Unconditional','Recent-Memory','Amnesia-Radius','Hybrid-Memory','Full-Memory'}:
+    raise Exception("Please choose 'Unconditional','Recent-Memory','Amnesia-Radius','Hybrid-Memory', or 'Full-Memory' for CoPS_Memory")
+if CoPS_CPF not in {'MarkovianAnalytic','MarkovianCombination','MICK-Analytic','MICK-Numeric'}:
+    raise Exception("Please choose 'MarkovianAnalytic','MarkovianCombination','MICK-Analytic','MICK-Numeric' for CoPS_CPF")
 
 #Load problem parameters
 CaseInp = MarkovianInputs()
@@ -35,37 +58,82 @@ Rng = RandomNumbers(flUseSeed=True,seed=54321,stridelen=None)
 #Setup multi-D particle object
 Part = Particle()
 Part.defineDimensionality(dimensionality='3D')
-Part.defineParticleInitAngle(initangletype='boundary-isotropic')
-Part.defineParticleInitPosition(xrange=[-Geomsize/2,Geomsize/2],yrange=[-Geomsize/2,Geomsize/2],zrange=[-Geomsize/2,-Geomsize/2]) #Sample particle position on negative z face
+Part.defineSourceAngle(sourgeAngleType='boundary-isotropic')
+Part.defineSourcePosition(sourceLocationType='cuboid',xrange=[-Geomsize/2,Geomsize/2],yrange=[-Geomsize/2,Geomsize/2],zrange=[-Geomsize/2,-Geomsize/2]) #Sample particle position on negative z face
 Part.defineScatteringType(scatteringtype='isotropic')
 Part.associateRng(Rng)
 
 #Setup geometry
-Geom = Geometry_CoPS()
-Geom.associateRng(Rng)
-Geom.associatePart(Part)
-Geom.defineGeometryBoundaries(xbounds=[-Geomsize/2,Geomsize/2],ybounds=[-Geomsize/2,Geomsize/2],zbounds=[-Geomsize/2,Geomsize/2])
-Geom.defineBoundaryConditions(xBCs=['reflective','reflective'],yBCs=['reflective','reflective'],zBCs=['vacuum','vacuum'])
-Geom.defineCrossSections(totxs=CaseInp.Sigt[:],scatxs=CaseInp.Sigs[:])
+CoPSGeom = Geometry_CoPS()
+CoPSGeom.associateRng(Rng)
+CoPSGeom.associatePart(Part)
+CoPSGeom.defineGeometryBoundaries(xbounds=[-Geomsize/2,Geomsize/2],ybounds=[-Geomsize/2,Geomsize/2],zbounds=[-Geomsize/2,Geomsize/2])
+CoPSGeom.defineBoundaryConditions(xBCs=['reflective','reflective'],yBCs=['reflective','reflective'],zBCs=['vacuum','vacuum'])
+CoPSGeom.defineCrossSections(totxs=CaseInp.Sigt[:],scatxs=CaseInp.Sigs[:])
 
+#Select CoPS memory options
+if   CoPS_Memory=='Unconditional' : recentmemory = 0; fllongtermmemory = False; amnesiaradius = None
+elif CoPS_Memory=='Recent-Memory' : recentmemory = 1; fllongtermmemory = False; amnesiaradius = None
+elif CoPS_Memory=='Amnesia-Radius': recentmemory = 0; fllongtermmemory = True ; amnesiaradius = 0.01
+elif CoPS_Memory=='Hybrid-Memory' : recentmemory = 1; fllongtermmemory = True ; amnesiaradius = 0.01
+elif CoPS_Memory=='Full-Memory'   : recentmemory = 0; fllongtermmemory = True ; amnesiaradius = 0.0
+CoPSGeom.defineLimitedMemoryParameters(recentMemory=recentmemory, amnesiaRadius=amnesiaradius, flLongTermMemory=fllongtermmemory)
 
-if   CoPSvariant == 'AM-accuracy'      : maxnumpoints = 0; recentmemory = 0; amnesiaradius = None; fllongtermmemory = False; conditionalProbEvaluator='MarkovianAnalytic'           ; exclusionMultiplier = 0.0 #With these options, new points are sampled based only on material abundance (and no previously sampled points). In OlsonMC2023, it was argued and demonstrated that this variant of CoPS yields equivalent transport solutions as the atomic mix (AM) approximation.
-elif CoPSvariant == 'CLS-accuracy'     : maxnumpoints = 1; recentmemory = 1; amnesiaradius = None; fllongtermmemory = False; conditionalProbEvaluator='MarkovianIndependentContribs'; exclusionMultiplier = 0.0 #With these options, only the most recently sampled point is remembered and used in conditional probability evluations for the next point. In OlsonMC2023, it was argued and demonstrated that this variant of CoPS, for stochastic media with Markovian mixing statistics, yields equivalent transport solutions as Chord Length Sampling.
-elif CoPSvariant == 'moderate-accuracy': maxnumpoints = 1; recentmemory = 1; amnesiaradius = 0.01; fllongtermmemory = True ; conditionalProbEvaluator='MarkovianIndependentContribs'; exclusionMultiplier = 1.0 #With these options, a sampled point is remembered in long-term memory if it is at least 0.01 units from the nearest point which is already stored in long-term memory.  Additionally, the most recently sampled point that was not stored in long-term memory is stored in short-term memory. The nearest point from both sets of memory to a newly sampled point is used in conditional probability evaluations for the next point. The conditional probability model used is the "independent contributions" model. This choice of recent memory and amnesia radius was explored in VuNSE2022.
-elif CoPSvariant == 'high-accuracy'    : maxnumpoints = 3; recentmemory = 1; amnesiaradius = 0.01; fllongtermmemory = True ; conditionalProbEvaluator='MarkovianIndependentContribs'; exclusionMultiplier = 1.0 #With these options, a sampled point is remembered in long-term memory as long as it is at least 0.01 units from the nearest point which is already stored in long-term memory.  Additionally, the most recently sampled point that was not stored in long-term memory is stored in short-term memory. The nearest three points to a newly sampled point, drawn from both sets of memory, that aren't excluded based on the exclusion angle, are used in conditional probability evaluations for the next point. The conditional probability model used is the "independent contributions" model. Considering more than one point noticeably increases runtime, but also increases accuracy.
-elif CoPSvariant == 'higher-accuracy'  : maxnumpoints = 3; recentmemory = 1; amnesiaradius = 0.01; fllongtermmemory = True ; conditionalProbEvaluator='MarkovianAnalytic'           ; exclusionMultiplier = 0.0 #With these options, a sampled point is remembered in long-term memory as long as it is at least 0.01 units from the nearest point which is already stored in long-term memory.  Additionally, the most recently sampled point that was not stored in long-term memory is stored in short-term memory. The nearest three points to a newly sampled point, drawn from both sets of memory are used in conditional probability evaluations for the next point. The conditional probability model used is the "analytic" model. The analytic model exactly represents N-point relationships in Markovian media, but grows in computational expense with more points more quickly than the "independent contributions" model.
-else                                   : raise Exception("Please choose 'AM-accuracy', 'CLS-accuracy', 'moderate-accuracy', 'high-accuracy', or 'higher-accuracy' for CoPSvariant")
-Geom.defineConditionalProbabilityEvaluator(conditionalProbEvaluator=conditionalProbEvaluator)
-Geom.defineMixingParams(CaseInp.lam[:])
-Geom.defineConditionalSamplingParameters(maxNumPoints=maxnumpoints,maxDistance=np.sqrt(3.0)*Geomsize+1.0,exclusionMultiplier=exclusionMultiplier) #These options use up to two governing points for CPF evaluations, exclude no points based on distance (this distance a little greater than largest possible distance in cubic geometry of side length Geomsize), and select a moderate angular exclusion multiplier (as explored in OlsonMC2019; that guards against using multiple points that are very close together as governing points)
-Geom.defineLimitedMemoryParameters(recentMemory=recentmemory, amnesiaRadius=amnesiaradius, flLongTermMemory=fllongtermmemory)
-Geom.defineCoPSGeometryType(geomtype='Markovian') #geomtype: 'Markovian', 'AM'
+#Select CoPS point-downselection options
+if   CoPS_Memory=='Unconditional'                    : maxnumpoints = 0; exclusionMultiplier = 0.0; flRefillToMaxPoints = False
+elif CoPS_Memory=='Recent-Memory'                    : maxnumpoints = 1; exclusionMultiplier = 0.0; flRefillToMaxPoints = False
+elif CoPS_Memory in {'Amnesia-Radius','Hybrid-Memory','Full-Memory'}:
+    if   CoPS_CPF=='MarkovianAnalytic'               : maxnumpoints = 3; exclusionMultiplier = 0.0; flRefillToMaxPoints = True
+    elif CoPS_CPF=='MarkovianCombination'            : maxnumpoints = 3; exclusionMultiplier = 1.0; flRefillToMaxPoints = False
+    elif CoPS_CPF in {'MICK-Analytic','MICK-Numeric'}: maxnumpoints = 3; exclusionMultiplier = 0.0; flRefillToMaxPoints = True
+CoPSGeom.defineConditionalSamplingParameters(maxNumPoints=maxnumpoints,maxDistance=Geomsize,exclusionMultiplier=exclusionMultiplier,flRefillToMaxPoints=flRefillToMaxPoints)
+
+#Select CoPS CPF type
+if   CoPS_CPF=='MarkovianAnalytic'               : conditionalProbEvaluator='MarkovianAnalytic'
+elif CoPS_CPF=='MarkovianCombination'            : conditionalProbEvaluator='MarkovianCombination'
+elif CoPS_CPF in {'MICK-Analytic','MICK-Numeric'}: conditionalProbEvaluator='MultipleIndicatorCoKriging'
+CoPSGeom.defineConditionalProbabilityEvaluator(conditionalProbEvaluator=conditionalProbEvaluator)
+
+#Define mixing parameters (based on CoPS CPF type chosen)
+if   CoPS_CPF in {'MarkovianAnalytic','MarkovianCombination'}: CoPSGeom.defineMixingParams(CaseInp.lam[:])
+elif CoPS_CPF=='MICK-Analytic'                                       :
+    CaseInp.generateAnalyticalS2CallableArray()
+    CoPSGeom.defineMixingParams(CaseInp.AnalyticalS2CallableArray, CaseInp.prob) 
+elif CoPS_CPF=='MICK-Numeric':
+    prefix = "CoPSDriverExample_ALP_"+case #File name prefix for geometry and statistics files for numeric MICK
+    try: #Try to read abundances and S2s from files
+        Stats = StatMetrics()
+        Stats.readMaterialAbundancesFromText(prefix+"_mat_abunds.txt")
+        Stats.readS2FromCSV(prefix)
+    except Exception as e: #If abundances or S2s are not available, generate geometry and calculate stats
+        print(f"Failed to read statistics, with exception: {e}")
+        print(f"Generating new geometry and computing statistics from it")
+
+        Geomsize  = 10.0
+        numVoxels = [400]*3   # number of voxels in each of three directions--increase for better numerical accuracy
+        RealizationRng = RandomNumbers(flUseSeed=True,seed=12345,stridelen=None)
+        RealizationGeom = Geometry_Markovian()
+        RealizationGeom.defineMixingParams(laminf=CaseInp.lamc, prob=CaseInp.prob[:])
+        RealizationGeom.associateRng(RealizationRng)
+        RealizationGeom.defineGeometryBoundaries(xbounds=[-Geomsize*1.2,Geomsize*1.2],ybounds=[-Geomsize*1.2,Geomsize*1.2],zbounds=[-Geomsize*1.2,Geomsize*1.2]) #Creating a realization larger than the target domain to get a broader survey of material behavior
+        RealizationGeom.defineVoxelizationParams(flVoxelize=True,numVoxels=numVoxels)
+        RealizationGeom._initializeSampleGeometryMemory()
+        RealizationGeom.writeVoxelMatIndsToH5(filename = prefix+'.h5')    
+
+        Stats = StatMetrics(RealizationGeom)    
+        #Calculate and plot S2 spatial statistics
+        Stats.calculateMaterialAbundances(flVerbose=True)
+        Stats.writeMaterialAbundancesToText(f"{prefix}_mat_abunds.txt")
+        Stats.calculateS2()
+        Stats.writeS2ToCSV(prefix) 
+
+    CoPSGeom.defineMixingParams(Stats)
 
 #Instantiate and associate the general Monte Carlo particle solver
 NDMC = MonteCarloParticleSolver(numpartsample)
 NDMC.associateRng(Rng)
 NDMC.associatePart(Part)
-NDMC.associateGeom(Geom)
+NDMC.associateGeom(CoPSGeom)
 NDMC.selectFluxTallyOptions(numFluxBins=numtalbins,fluxTallyType='Collision')
 
 #Run particle histories
@@ -81,4 +149,4 @@ fmean,fdev,fmeanSEM,fdevSEM = NDMC.returnWholeDomainFluxMoments(flVerbose=True,N
 print()
 NDMC.returnRuntimeValues(flVerbose=True)
 
-NDMC.plotFlux(flMaterialDependent=True)
+NDMC.plotFlux(flMaterialDependent=True,flshow=True,flsave=False,fileprefix='CoPSProb')

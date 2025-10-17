@@ -1,4 +1,4 @@
-"# BrantleyANS2014 provides plots of results, but not numerical values.  Values below were read from plots.  Uncertainty on reading the plots might be something like 10% of the values.",,,,,,,,,,,,,,,,,,
-,Case1-Frac0.05,Case1-Frac0.10,Case1-Frac0.15,Case1-Frac0.20,Case1-Frac0.25,Case1-Frac0.30,Case2-Frac0.05,Case2-Frac0.10,Case2-Frac0.15,Case2-Frac0.20,Case2-Frac0.25,Case2-Frac0.30,Case3-Frac0.05,Case3-Frac0.10,Case3-Frac0.15,Case3-Frac0.20,Case3-Frac0.25,Case3-Frac0.30
+# BrantleyANS2014 provides plots of results but not numerical values.  Values below were read from plots.  Uncertainty on reading the plots might be something like 10% of the values.,,,,,,,,,,,,,,,,,,
+,1-0.05,1-0.10,1-0.15,1-0.20,1-0.25,1-0.30,2-0.05,2-0.10,2-0.15,2-0.20,2-0.25,2-0.30,3-0.05,3-0.10,3-0.15,3-0.20,3-0.25,3-0.30
 Refl,0.373,0.371,0.375,0.382,0.389,0.398,0.353,0.3498,0.3499,0.353,0.359,0.368,0.345,0.341,0.339,0.341,0.344,0.347
 Trans,0.13,0.035,0.0085,0.0021,0.0005,0.00013,0.19,0.078,0.031,0.011,0.0035,0.0013,0.24,0.13,0.072,0.037,0.019,0.0093

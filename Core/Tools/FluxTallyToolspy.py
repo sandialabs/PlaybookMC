@@ -52,7 +52,7 @@ class FluxTallyTools(ClassTools):
         self.HistFluxTals = np.zeros((self.nummats,self.numFluxBins))
 
     ## \brief Contribute material-dependent history tallies into various sample-level flux tallies
-    def _contribHistTalsToSampTals(self):
+    def _contribHistFluxTalsToSampTals(self):
         #material-dependent flux tallies
         self.Tals[-1]['SampleMatDepFluxMeans'] = np.add(self.Tals[-1]['SampleMatDepFluxMeans'],          self.HistFluxTals   )
         self.Tals[-1]['SampleMatDepFluxMom2s'] = np.add(self.Tals[-1]['SampleMatDepFluxMom2s'], np.power(self.HistFluxTals,2))
@@ -66,20 +66,6 @@ class FluxTallyTools(ClassTools):
         HistFluxTal = np.sum( np.multiply(HistFluxTals,self.sizeFluxBins) ) / self.SlabLength
         self.Tals[-1]['SampleFluxMean']        += HistFluxTal   
         self.Tals[-1]['SampleFluxMom2']        += HistFluxTal**2
-
-
-    ## \brief Compute the Monte Carlo standard error of the mean on values in lists/numpy arrays
-    #
-    # Evaluates SEM = sqrt( (mom2-ave^2) / (N - 1) ) for a list of average values.
-    #
-    # \param means list or array of floats or ints, average of values that want MC standard error of the mean (SEM) for
-    # \param mom2s list or array of floats or ints, second moment of values that want MC standard error of the mean (SEM) for
-    # \param num int, number of samples
-    # \returns numpy array of MC SEMs
-    def _computeSEMs(self,means,mom2s,num):
-        var_term = np.subtract( mom2s , np.power(means,2) )
-        denom    = num - 1
-        return     np.sqrt( np.divide( var_term , denom ) )
 
     ## \brief Processes sample flux tally values, e.g., computes mean values and statistical uncertianty on those values
     def _processSampleFluxTallies(self):
@@ -149,8 +135,19 @@ class FluxTallyTools(ClassTools):
             self.FluxMom2        = self.Tals[-1]['SampleFluxMom2']
             self.FluxSEM         = self.Tals[-1]['SampleFluxSEM']
 
-    def plotFlux(self,flMaterialDependent=True):
+    ## \brief Plot flux as a function of depth through a 1D or 3D geometry
+    #
+    # \param[in] flMaterialDependent bool, default True; whether or not to plot material-dependent flux (in addition to the material-independent flux)
+    # \param[in] flshow bool, default True; show reflectance plot to user?
+    # \param[in] flsave bool, default False; save reflectance plot to file?
+    # \param[in] fileprefix str, default 'Prefix'; prefix to file name if saving plot
+    # \returns shows plot to user
+    def plotFlux(self,flMaterialDependent=True,flshow=True,flsave=False,fileprefix='Prefix'):
         assert isinstance(flMaterialDependent,bool)
+        assert isinstance(flshow,bool)
+        assert isinstance(flsave,bool)
+        if flsave: assert isinstance(fileprefix,str)
+
         plt.figure()
         plt.title('Flux')
         plt.ylabel(r'$\phi(x)$')
@@ -163,8 +160,10 @@ class FluxTallyTools(ClassTools):
         plt.legend(loc = 'best')
         plt.yscale('log')
         plt.grid(which='both',axis='both')
-        plt.show()
 
+        if flsave: plt.savefig(fileprefix+'_Flux.png')
+        if flshow: plt.show()
+        plt.close()
 
     ## \brief Tally a track-length flux contribution to history flux values
     #

@@ -1,12 +1,13 @@
 #!usr/bin/env python
 import numpy as np
 from FluxTallyToolspy import FluxTallyTools
+from LeakageTallyToolspy import LeakageTallyTools
 
 ## \brief Infrastructure for leakage tallies.
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
 #
 # Assumes particle weights of 1.
-class Tallies(FluxTallyTools):
+class Tallies(FluxTallyTools,LeakageTallyTools):
     def __init__(self):
         super(Tallies,self).__init__()
         self.Tals = []
@@ -23,6 +24,7 @@ class Tallies(FluxTallyTools):
         self.Tals.append( {'Transmit': 0, 'Reflect': 0, 'Absorb': 0, 'SideLeakage': 0,'MCTime': 0,'SampleTime':0} )
         self.CurrentSampleRuntime = 0.0 #This variable is useful for separating MC vs. Sample runtime when there is only one history per sample (tallied as only one sample)
         self._initializeSampleFluxTallies()
+        if self.flLeakTallies: self._initializeSampleLeakageTallies()
 
     ## \brief Accesses values in the Tals dictionary and returns them as a list
     #

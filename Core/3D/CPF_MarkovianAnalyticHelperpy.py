@@ -1,12 +1,13 @@
 #!usr/bin/env python
 import numpy as np
-import scipy.special as sp
 from collections import defaultdict
 from scipy.spatial import ConvexHull
 from itertools import combinations
 from functools import lru_cache
 import itertools
 import math
+from sklearn.decomposition import PCA
+from scipy.spatial import QhullError
 
 ## \brief Generates all possible connectivity tuples for n points, sorted lexicographically.
 # 
@@ -197,6 +198,7 @@ def hitrate_1d(points):
 
     return max(points)-min(points) #hitrate is the length of segment
 
+
 ## \brief Calculates the Poisson rate of hyperplanes hitting the convex hull of 2D points.
 #
 # \param[in] points NumPy array of shape (n, 2) representing the 2D coordinates of the points.
@@ -220,20 +222,27 @@ def hitrate_2d(points):
 
     >>> hitrate_2d(np.array([[0, 0], [1, 0]]))
     1.0
+    
+    >>> hitrate_2d(np.array([[0,0],[0,0],[0,0],[0,0]]))
+    0.0
     """
-
-    if len(points) == 2: #any two points will form a line segment, and the hitrate is its length
+    if len(points) == 2:
         return np.linalg.norm(points[1] - points[0])
-        
+    elif len(points) == 3:
+        return np.sum([np.linalg.norm(points[i] - points[(i+1)%3]) for i in range(3)]) / 2
+    try:
+        hull = ConvexHull(points)
+        perimeter = hull.area
+        return perimeter / 2
+    except QhullError:
+        # Degenerate in 2D → project to 1D and return segment length
+        centered = points - np.mean(points, axis=0)
+        if np.allclose(centered, 0):
+            return 0.0  # all points coincide, no hitrate
+        direction = PCA(n_components=1).fit(centered).components_[0]
+        projected = np.dot(centered, direction)
+        return np.ptp(projected)
 
-    # Calculate the convex hull of the points
-    hull = ConvexHull(points)
-    
-    # Calculate the perimeter of the convex hull
-    perimeter = hull.area
-    
-    # The hit rate is half the perimeter
-    return perimeter / 2
 
 ## \brief Calculates the dihedral angle between two normal vectors.
 #
@@ -277,6 +286,7 @@ def ensure_outward_facing(norm, point_on_face, centroid):
         return -norm  # Flip the normal to point outward
     return norm
 
+
 ## \brief Calculates the Poisson rate, mu, of hyperplanes hitting the convex hull of 3D points.
 #
 # \param[in] points NumPy array of shape (n, 3) representing the 3D coordinates of the input points.
@@ -304,15 +314,29 @@ def hitrate_3d(points):
 
     >>> hitrate_3d(np.array([[0, 0, 0], [1, 0, 0]]))
     1.0
-    """
 
+    >>> hitrate_3d(np.array([[0, 0, 0], [1, 0, 0], [0,0,0]]))
+    1.0
+
+    >>> three_d_degenerate = hitrate_3d(np.array([[0, 0,5], [1, 0,5], [0, 1,5], [1, 1,5]]))
+    >>> two_d = hitrate_2d(np.array([[0, 0], [1, 0], [0, 1], [1, 1]]))
+    >>> three_d_degenerate == two_d
+    True
+    """
     if len(points) == 2:
         return np.linalg.norm(points[1] - points[0])
-    elif len(points) == 3: #in this case we just want the perimeter of their triangle / 2!
-        return np.sum([np.linalg.norm(points[i] - points[(i+1)%3]) for i in range(3)])/2
-        
+    elif len(points) == 3:
+        return np.sum([np.linalg.norm(points[i] - points[(i+1)%3]) for i in range(3)]) / 2
+    try:
+        hull = ConvexHull(points)
+    except QhullError:
+        # Points are degenerate: project to 2D plane and try the 2D function
+        centered = points - np.mean(points, axis=0)
+        if np.allclose(centered, 0):
+            return 0.0
+        projected = PCA(n_components=2).fit_transform(centered)
+        return hitrate_2d(projected)
 
-    hull = ConvexHull(points)
     edge_contributions = []
     centroid = np.mean(points, axis=0)
 
@@ -322,31 +346,22 @@ def hitrate_3d(points):
                 edge = tuple(sorted((simplex[i], simplex[j])))
                 if edge not in [e[0] for e in edge_contributions]:
                     adjacent_faces = [face for face in hull.simplices if edge[0] in face and edge[1] in face]
-                    
+                    if len(adjacent_faces) < 2:
+                        continue  # skip boundary edges
                     face1_edge1 = points[adjacent_faces[0][1]] - points[adjacent_faces[0][0]]
                     face1_edge2 = points[adjacent_faces[0][2]] - points[adjacent_faces[0][0]]
                     face2_edge1 = points[adjacent_faces[1][1]] - points[adjacent_faces[1][0]]
                     face2_edge2 = points[adjacent_faces[1][2]] - points[adjacent_faces[1][0]]
 
-                    # Calculate the normal vectors of the two faces
-                    norm1 = np.cross(face1_edge1, face1_edge2)
-                    norm2 = np.cross(face2_edge1, face2_edge2)
+                    norm1 = ensure_outward_facing(np.cross(face1_edge1, face1_edge2), points[adjacent_faces[0][0]], centroid)
+                    norm2 = ensure_outward_facing(np.cross(face2_edge1, face2_edge2), points[adjacent_faces[1][0]], centroid)
 
-                    # Ensure normals are outward-facing
-                    norm1 = ensure_outward_facing(norm1, points[adjacent_faces[0][0]], centroid)
-                    norm2 = ensure_outward_facing(norm2, points[adjacent_faces[1][0]], centroid)
-
-                    # Calculate the edge length
                     edge_length = np.linalg.norm(points[edge[1]] - points[edge[0]])
-                    
-                    # Calculate the dihedral angle between the two faces
                     angle = dihedral_angle(norm1, norm2)
-                    
-                    # Store the contribution (edge_length * angle)
                     edge_contributions.append((edge, edge_length * angle))
 
-    # Sum the contributions and divide by 2π
     return sum(contribution for edge, contribution in edge_contributions) / (2 * np.pi)
+
 
 ## \brief Computes the single-hyperplane cut rates for sorted 1D points.
 #
@@ -382,6 +397,7 @@ def slash_rates_1d(points):
         rates[connected_component] = points[i+1] - points[i]
     
     return rates
+
 
 ## \brief Computes the single-hyperplane partition rates for points in 1D, 2D, or 3D.
 #
@@ -439,7 +455,6 @@ def slash_rates(points):
     >>> print(all([np.allclose(result2d[k],result3d[k]) for k in result2d]))
     True
     """
-
     dimension = points.shape[1] #this block makes the function general for any dimension
     if dimension == 1:
         return slash_rates_1d(points)
@@ -448,7 +463,6 @@ def slash_rates(points):
     elif dimension == 3:
         hitrate = hitrate_3d
 
-    points = points + np.random.normal(0, 1e-10, points.shape) #add noise to avoid coplanar points
     n = len(points)
 
     #loop over all possible partitions of the points into two disjoint sets
@@ -502,6 +516,7 @@ def slash_rates(points):
             subset_rates(subset)
     return rates
 
+
 ## \brief Computes the color distribution for the final point based on cuts.
 #
 # Given the single-hyperplane cuts, colors of the known points, and a prior color distribution,
@@ -519,7 +534,6 @@ def slash_rates(points):
 # >>> color_dist = (.2, .2, .2, .2, .2)
 # >>> color_from_partitions(partitions, colors, 4, color_dist)
 # array([0., 1., 0., 0., 0.])
-@lru_cache(maxsize = None) #must convert arguments to hashable type
 def color_from_partitions(partitions, colors, num_points, color_dist):
     """Returns the color probability distribution for the final point given the partitions 
     and colors of the other points.
@@ -570,6 +584,7 @@ def color_from_partitions(partitions, colors, num_points, color_dist):
         color_probs = np.array(color_dist)
     return color_probs
 
+
 ## \brief Computes the CPF of the final point based on colors of the other points and color distributions.
 #
 # \param[in] points NumPy array of shape (n, d), where points[:-1] are known and points[-1] is the query point.
@@ -584,13 +599,12 @@ def color_from_partitions(partitions, colors, num_points, color_dist):
 # >>> color_dist = (.5, .5)
 # >>> color_distribution(points, colors, color_dist)
 # array([0.5, 0.5])
-def color_distribution(points, colors, color_dist, noise = 1e-8):
+def color_distribution(points, colors, color_dist):
     """Returns the color probability distribution for points[-1].
     
     points: np.array, shape (n,d). points[:-1] are the colored points, points[-1] is the point whose color is unknown
     colors: tuple of ints, shape (n-1). Colors of points[:-1].
     color_dist: tuple, the probabilities of each color
-    noise: float, the amount of noise to add to the points to avoid coplanar points
 
     returns: np.array, the calculated color distribution for the final point
     >>> points = np.array([[0, 1], [1, 0], [0, 0]])
@@ -607,8 +621,6 @@ def color_distribution(points, colors, color_dist, noise = 1e-8):
     True
     """
     n = len(points)
-    noise = np.sum(np.abs(points))/n * noise #noise adjusted relative to points
-    points = points + np.random.normal(0, noise, points.shape) #add noise to avoid colinear points
     rates = slash_rates(points)
     partitions = list(rates.keys())
     all_connectivity = generate_all_connectivity_tuples(n)
@@ -641,6 +653,7 @@ def color_distribution(points, colors, color_dist, noise = 1e-8):
     ret = np.clip(ret, 0, None)  # remove any tiny negatives
     ret /= np.sum(ret)  # re-normalize after clipping
     return ret
+
 
 if __name__ == "__main__":
     import doctest

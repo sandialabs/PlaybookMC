@@ -1,10 +1,8 @@
 #!usr/bin/env python
+import numpy as np
 
 ## \brief Tools to be used in several classes, can inherit from here.
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
-#
-# Tool 1: Evaluate floating point comparisons within tolerance
-# Tool 2: (could put random number object here)
 class ClassTools(object):
     def __init__(self):
         self.rtol                = 0.000000000001 #roundoff tolerance, 10^(-12)
@@ -37,3 +35,16 @@ class ClassTools(object):
     def isclose_and_geq(self,a,b):
         if a<=b and a<=b+self.rtol: return True
         else                      : return False
+
+    ## \brief Compute the Monte Carlo standard error of the mean on values in lists/numpy arrays
+    #
+    # Evaluates SEM = sqrt( (mom2-ave^2) / (N - 1) ) for a list of average values.
+    #
+    # \param means list or array of floats or ints, average of values that want MC standard error of the mean (SEM) for
+    # \param mom2s list or array of floats or ints, second moment of values that want MC standard error of the mean (SEM) for
+    # \param num int, number of samples
+    # \returns numpy array of MC SEMs
+    def _computeSEMs(self,means,mom2s,num):
+        var_term = np.subtract( mom2s , np.power(means,2) )
+        denom    = num - 1
+        return     np.sqrt( np.divide( var_term , denom ) )

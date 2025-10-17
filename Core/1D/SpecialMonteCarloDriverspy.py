@@ -241,8 +241,7 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
     # Currently uses isotropic source on left boundary and isotropic scattering
     # and tallies transmittance, reflectance, and absorption.
     def _pushCLSParticle(self):
-        self.mu  = self._setParticleSourceAngle()
-        x   = self._initializePosition()
+        x, self.mu = self._initializeParticle()
         mat = int( self.Rng.choice( self.nummats, p=self.prob[:] ) ) #material designation
         if   self.GeomType=='LRP' : self.dip = self._newdi(mat); self.dim = self._newdi(mat)
         elif self.GeomType=='AlgC': self.dip = self._newdi(mat); self.dim = 0.0; self.dipp = self._newdi(self._changeMat(mat)); self.dimm = 0.0
@@ -584,8 +583,7 @@ class SpecialMonteCarloDrivers(MonteCarloParticleSolver,MarkovianInputs):
     # Currently uses normally incident beam source on left boundary and isotropic scattering
     # and tallies transmittance, reflectance, and absorption.
     def _pushCoPSParticle(self):
-        self.mu  = self._setParticleSourceAngle()
-        self.x   = self._initializePosition()
+        self.x, self.mu = self._initializeParticle()
         mat      = None #if particle streams without colliding, this is needed to satisfy syntax
         self.XSCeiling = max(self.totxs) #majorant total cross section
             

@@ -7,8 +7,7 @@ import sys
 sys.path.append('../../Core/Tools')
 from RandomNumberspy import RandomNumbers
 from SphericalInclusionInputspy import SphericalInclusionInputs
-sys.path.append('../../Counterparts/BrantleyMC2011')
-sys.path.append('../../Counterparts/BrantleyANS2014')
+from CompareOutputDataAnalysispy import CompareOutputDataAnalysis
 sys.path.append('../../Core/3D')
 from MonteCarloParticleSolverpy import MonteCarloParticleSolver
 from Particlepy import Particle
@@ -36,9 +35,10 @@ CaseInp.selectBMInputs( case,volfrac,raddist )
 print(''); print('Case:',case,' Volume Fraction:',volfrac,' Radius Distrubution:',raddist )
 
 #Load published values
-if   raddist=="Constant"   : Brant = pd.read_csv('../../Counterparts/BrantleyMC2011/BrantleyMC2011_Spheres_Constant.csv',index_col=0,skiprows=1,encoding='unicode_escape')
-elif raddist=="Uniform"    : Brant = pd.read_csv('../../Counterparts/BrantleyMC2011/BrantleyMC2011_Spheres_Uniform.csv',index_col=0,skiprows=1,encoding='unicode_escape')
-elif raddist=="Exponential": Brant = pd.read_csv('../../Counterparts/BrantleyANS2014/BrantleyANS2014_Spheres_Exponential.csv',index_col=0,skiprows=1,encoding='unicode_escape')
+Coda = CompareOutputDataAnalysis()
+if   raddist=="Constant"   : Coda.readCSV(filePath='../../../playbookmc/Counterparts/BrantleyMC2011/BrantleyMC2011_Spheres_Constant.csv', type='reference',  name='Brant')
+elif raddist=="Uniform"    : Coda.readCSV(filePath='../../../playbookmc/Counterparts/BrantleyMC2011/BrantleyMC2011_Spheres_Uniform.csv', type='reference',  name='Brant')
+elif raddist=="Exponential": Coda.readCSV(filePath='../../../playbookmc/Counterparts/BrantleyANS2014/BrantleyANS2014_Spheres_Exponential.csv', type='reference',  name='Brant')
 
 #Setup random number geneator
 Rng = RandomNumbers(flUseSeed=True,seed=11119,stridelen=None)
@@ -46,8 +46,8 @@ Rng = RandomNumbers(flUseSeed=True,seed=11119,stridelen=None)
 #Setup multi-D particle object
 Part = Particle()
 Part.defineDimensionality(dimensionality='3D')
-Part.defineParticleInitAngle(initangletype='boundary-isotropic')
-Part.defineParticleInitPosition(xrange=[-Geomsize/2,Geomsize/2],yrange=[-Geomsize/2,Geomsize/2],zrange=[-Geomsize/2,-Geomsize/2]) #Sample particle position on negative z face
+Part.defineSourceAngle(sourgeAngleType='boundary-isotropic')
+Part.defineSourcePosition(sourceLocationType='cuboid',xrange=[-Geomsize/2,Geomsize/2],yrange=[-Geomsize/2,Geomsize/2],zrange=[-Geomsize/2,-Geomsize/2]) #Sample particle position on negative z face
 Part.defineScatteringType(scatteringtype='isotropic')
 Part.associateRng(Rng)
 
@@ -78,8 +78,8 @@ NDMC.pushParticles(NumNewParticles=numparticles,NumParticlesUpdateAt=numpartupda
 if   raddist=="Constant"   : print("\n--BrantleyMC2011 values (read from plot, uncertainty ~10%--)")
 elif raddist=="Uniform"    : print("\n--BrantleyMC2011 values (read from plot, uncertainty ~20%--)")
 elif raddist=="Exponential": print("\n--BrantleyANS2014 values (read from plot, uncertainty ~10%--)")
-print("Transmittance            :  ",Brant['Case'+case+'-Frac'+volfrac]['Trans'])
-print("Reflectance              :  ",Brant['Case'+case+'-Frac'+volfrac]['Refl'],'\n')
+print("Transmittance               :  ",Coda.reference['Brant'][case+'-'+volfrac]['Trans'])
+print("Reflectance                 :  ",Coda.reference['Brant'][case+'-'+volfrac]['Refl'],'\n')
 
 #Compute tallies, return values from function and print to screen
 NDMC.processSimulationFluxTallies()
@@ -95,4 +95,4 @@ NDMC.returnAbsorptionRuntimeAnalysis(flVerbose=True,NumStatPartitions=numpartiti
 print()
 NDMC.returnRuntimeValues(flVerbose=True)
 
-NDMC.plotFlux(flMaterialDependent=True)
+NDMC.plotFlux(flMaterialDependent=True,flshow=True,flsave=False,fileprefix='SphereProb')

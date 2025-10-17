@@ -1,4 +1,4 @@
-"# BrantleyANS2017 reports that, for the Monte Carlo simulations (CLS, Alg. B), 10^8 histories were used. No comment was made on the uncertainties.",,,,,,,,,
-,1a,1b,1c,2a,2b,2C,3a,3b,3c
+# BrantleyANS2017 reports that 10^8 histories were used for the Monte Carlo simulations (CLS and Alg. B). No comment was made on the uncertainties.,,,,,,,,,
+,1a,1b,1c,2a,2b,2c,3a,3b,3c
 Refl,0.40159,0.03669,0.39609,0.2004,0.1422,0.27686,0.64039,0.01243,0.34639
 Trans,0.01749,0.00084,0.01698,0.10557,0.11001,0.1503,0.19915,0.04037,0.08058

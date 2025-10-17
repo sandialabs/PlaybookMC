@@ -3,12 +3,12 @@ from CPF_Basepy import CPF_Base
 from MarkovianInputspy import MarkovianInputs
 import numpy as np
 
-## \brief Conditional probability function evaluator for model where each point is assumed to contribute to the new point's material likelihoods independently
+## \brief Conditional probability function evaluator for model where independent contributions from each point are combined to approximate multi-point function
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
 #
-class CPF_MarkovianIndependentContribs(CPF_Base,MarkovianInputs):
+class CPF_MarkovianCombination(CPF_Base,MarkovianInputs):
     def __init__(self):
-        super(CPF_MarkovianIndependentContribs,self).__init__()
+        super(CPF_MarkovianCombination,self).__init__()
 
     def __str__(self):
         return str(self.__dict__)
@@ -19,7 +19,7 @@ class CPF_MarkovianIndependentContribs(CPF_Base,MarkovianInputs):
     # \returns sets chord length, probabilities, correlation length, seed locations
     def defineMixingParams(self,*args):
         # Assert material chord lengths and slab length and store in object
-        lam = args[0][0]
+        lam = args[0]
         assert isinstance(lam,list)
         self.nummats = len(lam)
         for i in range(0,self.nummats): assert isinstance(lam[i],float) and lam[i]>0.0

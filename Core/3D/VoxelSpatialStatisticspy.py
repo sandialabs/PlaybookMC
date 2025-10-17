@@ -19,9 +19,13 @@ except:
 class StatMetrics():
         
     ## Associate voxel geometry
-    def __init__(self, Geom):
-        self.Geom = Geom
-        self.matInds = self.Geom.matInds #Just to simplify variable naming        
+    def __init__(self, Geom=None):
+        if Geom is not None:
+            self.Geom = Geom
+            self.matInds = self.Geom.matInds 
+        else:
+            print("Initializing StatMetrics object without an associated voxel geometry. For most uses, material indices should be read in from a material abundances text file via readMaterialAbundancesFromText.")
+                   
     
     # \brief Calculates material abundances for voxel data
     #
@@ -49,10 +53,17 @@ class StatMetrics():
     # \returns Sets self.MaterialAbundances dictionary
     def readMaterialAbundancesFromText(self, filename):
         self.MaterialAbundances = {}   
+        flSetMatInds = False
+        if not hasattr(self, 'matInds'):
+            self.matInds = []
+            flSetMatInds = True
         with open(filename, "r") as f:
             for line in f.readlines():
-                words = line.strip().split()            
-                self.MaterialAbundances[int(words[1][:-1])] = float(words[-1])            
+                words = line.strip().split()   
+                matIndex = int(words[1][:-1])
+                if flSetMatInds:
+                    self.matInds.append(matIndex)
+                self.MaterialAbundances[matIndex] = float(words[-1])
     
 
     # \brief Calculates chord lengths for voxel structures
@@ -337,11 +348,9 @@ class StatMetrics():
                     (inds[1] - center[1])**2 +
                     (inds[0] - center[0])**2)        
         
-        r = r.astype(np.int32)
-        tbin = np.bincount(r.ravel(), data.ravel())
-        nr = np.bincount(r.ravel())
-        radialprofile = tbin / nr
-        radvals = np.arange(0,len(radialprofile))+0.5
+        radvals, inverse_inds, counts = np.unique(r.ravel(), return_inverse=True, return_counts=True)
+        sum_by_r = np.bincount(inverse_inds, weights=data.ravel())
+        radialprofile = sum_by_r/np.where(counts == 0, 1, counts)        
         return radvals, radialprofile
     
     # \brief Calculates S2 for voxel data
@@ -459,7 +468,7 @@ class StatMetrics():
                             ax.plot(xlims, [phi2, phi2], '--k', label=f"$\\lim_{{r \\rightarrow \\infty}}\\.S_2 = \\phi_{{{imat}}}\\phi_{{{jmat}}} = $"+f"{phi2:.3f}", alpha=0.5)
                         ax.set_xlim(xlims)
                     ax.set_title(f"$S_2$, {imat}-{jmat}")
-                    ax.set_xlabel("Distance (voxels)")
+                    ax.set_xlabel("Distance (length units)")
                     ax.set_xlim([0, xlim])
                     if flPlotStandardYAxis: ax.set_ylim([0,max(self.MaterialAbundances.values())*1.1])
                     ax.set_ylabel("S$_2$")

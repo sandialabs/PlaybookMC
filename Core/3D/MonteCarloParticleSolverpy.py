@@ -62,6 +62,10 @@ class MonteCarloParticleSolver(Tallies):
         self.xmin           = self.Geom.zbounds[0]
         self.xmax           = self.Geom.zbounds[1]
         self.SlabLength     = self.xmax - self.xmin
+        self.y3Dmin         = self.Geom.ybounds[0]
+        self.y3Dmax         = self.Geom.ybounds[1]
+        self.x3Dmin         = self.Geom.xbounds[0]
+        self.x3Dmax         = self.Geom.xbounds[1]
         self.nummats        = self.Geom.nummats
         self.abundanceModel = self.Geom.abundanceModel
         self.Geom.trackingType = 'standard' if isinstance(Geom,Geometry_CLS) else 'Woodcock'
@@ -99,25 +103,35 @@ class MonteCarloParticleSolver(Tallies):
                 elif self.abundanceModel == 'sample':   #SM material fractions solved for each sample and used in material-dependent flux tallies
                     self.Geom.solveMaterialTypeFractions(numbins=self.numFluxBins,Rng=self.Rng,numSampPerBin=10000)
                     self.Tals[-1]['SampleMatAbundance'] = self.Geom.MatFractions
+                elif self.abundanceModel == 'pre-sampled':
+                    self.Tals[-1]['SampleMatAbundance'] = self.Geom.MatFractions
                 tend_samp_setup   = time.time()
             #setup history
             self.Geom._initializeHistoryGeometryMemory()
             self._initializeHistoryFluxTallies()
+            if self.flLeakTallies: self._initializeHistoryLeakageTallies()
             self.Part.initializeParticle()
             #simulate history
             killtype = self._pushMCParticle() if self.Geom.trackingType=='standard' else self._pushWMCParticle()
             #postprocess history
-            if   killtype=='transmit': self.Tals[-1]['Transmit']    +=1
-            elif killtype=='reflect' : self.Tals[-1]['Reflect']     +=1
+            if   killtype=='transmit':
+                self.Tals[-1]['Transmit']    +=1
+                if self.flLeakTallies: self._tallyTransmittance(self.Part.y,self.Part.x)
+            elif killtype=='reflect' :
+                self.Tals[-1]['Reflect']     +=1
+                if self.flLeakTallies: self._tallyReflectance(self.Part.y,self.Part.x)
             elif killtype=='absorb'  : self.Tals[-1]['Absorb']      +=1
             elif killtype=='sideleak': self.Tals[-1]['SideLeakage'] +=1
-            self._contribHistTalsToSampTals()
+            self._contribHistFluxTalsToSampTals()
+            if self.flLeakTallies: self._contribHistLeakageTalsToSampTals()
             self.printTimeUpdate(ipart)
             #postprocess sample
             flEndSample   = True if (ipart+1)%self.NumParticlesPerSample==0 else False #Last history in a sample?
             if flEndSample:
                 tend_hists        = time.time()
-                if self.NumParticlesPerSample>1: self._processSampleFluxTallies()
+                if self.NumParticlesPerSample>1:
+                    self._processSampleFluxTallies()
+                    if self.flLeakTallies: self._processSampleLeakageTallies()
                 tend_process_samp = time.time()
                 self.Tals[-1]['SampleTime'] += tend_samp_setup - tstart_samp_setup + tend_process_samp - tend_hists
                 self.Tals[-1]['MCTime']     += tend_hists      - tend_samp_setup

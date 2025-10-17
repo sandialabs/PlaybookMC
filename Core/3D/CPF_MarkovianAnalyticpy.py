@@ -20,7 +20,7 @@ class CPF_MarkovianAnalytic(CPF_Base, MarkovianInputs):
     # \param[in] lam, list of floats, list of chord lengths
     # \returns sets chord length, probabilities, correlation length, seed locations
     def defineMixingParams(self, *args):
-        lam = args[0][0]
+        lam = args[0]
         assert isinstance(lam, list)
         self.nummats = len(lam)
         for i in range(self.nummats):

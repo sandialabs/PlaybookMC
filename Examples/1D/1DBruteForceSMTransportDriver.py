@@ -37,7 +37,8 @@ MarkVals.solveNaryMarkovianParamsBasedOnChordLengths(lam=CaseInp.lam[:])
 
 #Instantiate Monte Carlo solver object, connect with slab geometry object, choose source, and initialize random number seed
 SMCsolver = SpecialMonteCarloDrivers(numpartsample)
-SMCsolver.defineSource('boundary-isotropic')
+SMCsolver.defineSourcePosition('left-boundary')
+SMCsolver.defineSourceAngle('boundary-isotropic')
 SMCsolver.initializeRandomNumberObject(flUseSeed=True,seed=1357)
 SMCsolver.defineMarkovianGeometry(totxs=CaseInp.Sigt[:], lam=CaseInp.lam[:], slablength=Slablength, scatxs=CaseInp.Sigs[:], NaryType='volume-fraction')
 SMCsolver.defineMCGeometry(slab)
@@ -60,4 +61,4 @@ SMCsolver.returnAbsorptionRuntimeAnalysis(flVerbose=True,NumStatPartitions=numpa
 print()
 SMCsolver.returnRuntimeValues(flVerbose=True)
 
-SMCsolver.plotFlux(flMaterialDependent=True)
+SMCsolver.plotFlux(flMaterialDependent=True,flshow=True,flsave=False,fileprefix='BruteForceProb')

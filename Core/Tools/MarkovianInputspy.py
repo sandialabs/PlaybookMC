@@ -107,3 +107,26 @@ class MarkovianInputs(object):
         self.Sigs = list( np.multiply( self.Sigt, self.Scatrat ) )
 
         self.solveNaryMarkovianParamsBasedOnChordLengths(self.lam)
+
+
+    ## \brief Compute analytical S2s for all combinations of materials
+    #
+    # This stores the analytical S2s as callables in a num_materials X num_materials array, 
+    # where each entry i,j corresponds to the S2 for material combination i,j (0-indexed, matching the ordering of chord lengths).
+    # The callables in the array are lambda functions that return S2 values given a distance argument. 
+    #   
+    # This is primarily meant for use with MICK CPFs, but can also be 
+    # useful in other contexts (e.g. validating numerical S2 calculations).
+    def generateAnalyticalS2CallableArray(self):
+        #Compute prob and lamc if not available
+        if not hasattr(self, "prob") or not hasattr(self, "lamc"):
+            self.solveNaryMarkovianParamsBasedOnChordLengths(self.lam)
+        prob = self.prob
+        lamc = self.lamc    
+        nmat = len(prob)
+        self.AnalyticalS2CallableArray = np.empty([nmat,nmat]).astype(np.object_)
+        for i in np.arange(0,nmat):
+            for j in np.arange(0,nmat):
+                if i == j: self.AnalyticalS2CallableArray[i,j] = lambda r,i=i,j=j: prob[i]*(1-(1-prob[i])*(1-np.exp(-r/lamc)))
+                else     : self.AnalyticalS2CallableArray[i,j] = lambda r,i=i,j=j: prob[i]*prob[j]*(1-np.exp(-r/lamc))
+        

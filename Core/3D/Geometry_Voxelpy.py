@@ -139,6 +139,52 @@ class Geometry_Voxel(Geometry_Base):
         self.matInds = np.unique(self.VoxelMatInds)
         print('created voxel geometry, took {:5.2f} min'.format((time.time()-tstart)/60.0))    
 
+    ## \brief Solves material fractions of each material within each flux cell
+    # 
+    # \param[in] numbins, int; number of flux cells
+    # \param[in] Rng, random number object
+    # \param[in] numSampPerBin, int; number of samples per flux bin
+    # \returns sets self.MatFractions
+    def solveMaterialTypeFractions(self,numbins,Rng,numSampPerBin):
+        assert isinstance(numbins,int) and numbins>0
+        assert isinstance(numSampPerBin,int) and numSampPerBin>0
+        self.MatFractions = np.zeros((self.nummats,numbins))
+        binsize = ( self.zbounds[1] - self.zbounds[0] ) / numbins
+        for ibin in range(0,numbins):
+            zmin = self.zbounds[0] + binsize *   ibin
+            zmax = self.zbounds[0] + binsize * ( ibin+1 )
+            for _ in range(0,numSampPerBin):
+                self.Part.x = Rng.uniform(self.xbounds[0],self.xbounds[1])
+                self.Part.y = Rng.uniform(self.ybounds[0],self.ybounds[1])
+                self.Part.z = Rng.uniform(     zmin      ,     zmax      )
+                self.samplePoint()
+                self.MatFractions[self.CurrentMatInd,ibin] += 1
+        self.MatFractions = np.divide(self.MatFractions,numSampPerBin)
+
+    ## \brief Enables user to set material type in each voxel for voxel geometry and, if desired, pre-sample material abundance in flux cells
+    # 
+    # \param[in] VoxelMatInds, list of lists of lists of ints (3D data); number of flux cells
+    # \param[in] numfluxbins, optional: int; number of flux bins in z to pre-sample material abundance in
+    # \param[in] numSampPerFluxBin, optional: int; number of random locations in each flux bin to sample to determine material abundance
+    # \returns sets self.numVoxels, self.VoxelMatInd, and self.samplePoint; can set self.abundanceModel and self.MatFractions 
+    def initializeUserDefinedVoxelGeometry(self,VoxelMatInds,numfluxbins=None,numSampPerFluxBin=None):
+        self.numVoxels = [ len(VoxelMatInds), len(VoxelMatInds[0]), len(VoxelMatInds[0][0])]
+        for ientry in range(0,len(VoxelMatInds)):
+            assert self.numVoxels[1]==len(VoxelMatInds[ientry])
+            for jentry in range(0,len(VoxelMatInds[ientry])):
+                assert self.numVoxels[2]==len(VoxelMatInds[ientry][jentry])
+                for kentry in range(0,len(VoxelMatInds[ientry][jentry])):
+                    assert isinstance(VoxelMatInds[ientry][jentry][kentry],int)
+        self.VoxelMatInds = VoxelMatInds[:]
+
+        self.samplePoint = self.samplePoint_Voxel
+
+        if not numfluxbins == None:
+            assert isinstance(numfluxbins,int) and numfluxbins>=1
+            assert isinstance(numSampPerFluxBin,int) and numSampPerFluxBin>=1
+            self.abundanceModel = 'pre-sampled'
+            self.solveMaterialTypeFractions(numfluxbins,self.Rng,numSampPerFluxBin)
+
     ## \brief Writes voxel data from numpy array to HDF5 format
     #
     # \param[in] filename, str, name of file to write data to (include .h5 extension)

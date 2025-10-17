@@ -25,7 +25,8 @@ print(''); print(case)
 #Setup transport
 CaseInp.selectALPInputs( case )
 SMCsolver = SpecialMonteCarloDrivers(numpartsample)
-SMCsolver.defineSource(sourceType='boundary-isotropic',sourceLocationRange=[0.0,0.0])
+SMCsolver.defineSourcePosition('left-boundary')
+SMCsolver.defineSourceAngle('boundary-isotropic')
 SMCsolver.initializeRandomNumberObject(flUseSeed=True, seed=1)
 SMCsolver.defineMarkovianGeometry(totxs=CaseInp.Sigt[:], lam=CaseInp.lam[:], slablength=10.0, scatxs=CaseInp.Sigs[:], NaryType='volume-fraction')
 if   CoPSvariant == 'AM-accuracy'       : numcondprobpts = 0; recentmemory = 0; amnesiaradius = None; longTermMemoryMode = 'off'           ; numpresampled=0    #With these options, new points are sampled based only on material abundance (and no previously sampled points).  In OlsonMC2023, it was argued and demonstrated that when running CoPS with these options yields equivalent transport solutions as the atomic mix (AM) approximation.
@@ -55,4 +56,4 @@ if SMCsolver.longTermMemoryMode=='presampledonly':
 print()
 SMCsolver.returnRuntimeValues(flVerbose=True)
 
-#SMCsolver.plotFlux(flMaterialDependent=True)
+SMCsolver.plotFlux(flMaterialDependent=True,flshow=True,flsave=False,fileprefix='CoPSProb')

@@ -34,8 +34,8 @@ Rng = RandomNumbers(flUseSeed=True,seed=1234321,stridelen=None)
 #Setup multi-D particle object
 Part = Particle()
 Part.defineDimensionality(dimensionality='3D')
-Part.defineParticleInitAngle(initangletype='boundary-isotropic')
-Part.defineParticleInitPosition(xrange=[-Geomsize/2,Geomsize/2],yrange=[-Geomsize/2,Geomsize/2],zrange=[-Geomsize/2,-Geomsize/2]) #Sample particle position on negative z face
+Part.defineSourceAngle(sourgeAngleType='boundary-isotropic')
+Part.defineSourcePosition(sourceLocationType='cuboid',xrange=[-Geomsize/2,Geomsize/2],yrange=[-Geomsize/2,Geomsize/2],zrange=[-Geomsize/2,-Geomsize/2]) #Sample particle position on negative z face
 Part.defineScatteringType(scatteringtype='isotropic')
 Part.associateRng(Rng)
 
@@ -70,4 +70,4 @@ fmean,fdev,fmeanSEM,fdevSEM = NDMC.returnWholeDomainFluxMoments(flVerbose=True,N
 print()
 NDMC.returnRuntimeValues(flVerbose=True)
 
-NDMC.plotFlux(flMaterialDependent=True)
+NDMC.plotFlux(flMaterialDependent=True,flshow=True,flsave=False,fileprefix='CLSProb')

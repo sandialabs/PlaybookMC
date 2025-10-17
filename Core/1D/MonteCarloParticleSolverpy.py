@@ -23,7 +23,22 @@ class MonteCarloParticleSolver(Tallies):
     def __str__(self):
         return str(self.__dict__)
 
-    ## \brief Enables user to set source angle and location
+    ## \brief Define source location or location range
+    # 
+    # \param[in] sourceLocationType str, 'left-boundary' 'right-boundary' or 'internal'
+    # \param[in] sourceLocationRange list of 2 floats, default [0.0,self.SlabLength], location bounds of uniformly distributed internal source
+    # \returns sets self.sourceLocationType and self.sourceLocationRange
+    def defineSourcePosition(self,sourceLocationType=None,sourceLocationRange=None):
+        assert sourceLocationType=='left-boundary' or sourceLocationType=='right-boundary' or sourceLocationType=='internal'
+        if sourceLocationType=='boundary':
+            if sourceLocationRange==None: sourceLocationRange=[0.0,self.SlabLength]
+            assert isinstance(sourceLocationRange,list) and len(sourceLocationRange)==2
+            assert isinstance(sourceLocationRange[0],float) and isinstance(sourceLocationRange[1],float)
+            assert self.isleq(0.0,sourceLocationRange[0]) and self.isleq(sourceLocationRange[0],sourceLocationRange[1]) and self.isleq(sourceLocationRange[1],self.SlabLength)
+        self.sourceLocationType = sourceLocationType
+        self.sourceLocationRange= sourceLocationRange
+
+    ## \brief Define source angular rule and/or angle
     #
     # 'beam' - Particles are monodirectional in the positive x direction.
     # 'boundary-isotropic' - Also known as a 'cosine-law' source, particles are distributed proportionally 
@@ -32,25 +47,17 @@ class MonteCarloParticleSolver(Tallies):
     #    flux field.
     # 'internal-isotropic' - Particles are distributed uniformly over all angles.
     #
-    # \param[in] sourceType str, 'boundary-isotropic' or 'internal-isotropic' or 'beam'
-    # \param[in] sourceLocationRange list of two floats, default [0.0,self.SlabLength], location bounds of uniformly distributed source
-    # \param[in] sourceAngleOfIncidence float, default 1.0 (normally incident), cosine of angle of beam incidence
-    # \returns sets self.sourceType, self.sourceLocationRange, and self.sourceAngleOfIncidence
-    def defineSource(self,sourceType=None,sourceLocationRange=None,sourceAngleOfIncidence=None):
-        assert sourceType=='boundary-isotropic' or sourceType=='internal-isotropic' or sourceType=='beam'
-        if sourceType=='beam':
-            if sourceAngleOfIncidence==None: sourceAngleOfIncidence = 1.0
-            assert isinstance(sourceAngleOfIncidence,float)
-            assert sourceAngleOfIncidence > 0.0 and sourceAngleOfIncidence <= 1.0
-        if sourceType=='internal-isotropic':
-            if sourceLocationRange==None: sourceLocationRange=[0.0,self.SlabLength]
-            assert isinstance(sourceLocationRange,list) and len(sourceLocationRange)==2
-            assert isinstance(sourceLocationRange[0],float) and isinstance(sourceLocationRange[1],float)
-            assert self.isleq(0.0,sourceLocationRange[0]) and self.isleq(sourceLocationRange[0],sourceLocationRange[1]) and self.isleq(sourceLocationRange[1],self.SlabLength)
-        self.sourceType             = sourceType
-        self.sourceLocationRange    = sourceLocationRange
-        self.sourceAngleOfIncidence = sourceAngleOfIncidence
-        
+    # \param[in] sourceAngleType str, 'boundary-isotropic' or 'internal-isotropic' or 'beam'
+    # \param[in] sourceBeamAngle float, default 1.0 (normally incident), for beam source only: cosine of angle of beam incidence
+    # \returns sets self.sourceAngleType and self.sourceBeamAngle
+    def defineSourceAngle(self,sourceAngleType=None,sourceBeamAngle=1.0):
+        assert sourceAngleType=='boundary-isotropic' or sourceAngleType=='internal-isotropic' or sourceAngleType=='beam'
+        if sourceAngleType=='beam':
+            assert isinstance(sourceBeamAngle,float)
+            assert -1.0 <= sourceBeamAngle and sourceBeamAngle <= 1.0
+        self.sourceAngleType = sourceAngleType
+        self.sourceBeamAngle = sourceBeamAngle
+
     ## \brief Sets a link to instantiation of OneDSlab
     #
     # \param[in] slab object, instantiation of OneDSlabGeometry
@@ -166,7 +173,7 @@ class MonteCarloParticleSolver(Tallies):
             #simulate history
             self.fPushParticle()
             #postprocess history
-            self._contribHistTalsToSampTals()
+            self._contribHistFluxTalsToSampTals()
             self.printTimeUpdate(ipart)
             #postprocess sample
             flEndSample   = True if (ipart+1)%self.NumParticlesPerSample==0 else False #Last history in a sample?
@@ -198,28 +205,26 @@ class MonteCarloParticleSolver(Tallies):
             tottime = ( self.TotalTime + time.time() - self.tstart ) /60.0
             print('{}/{} histories, {:.2f}/{:.2f} min'.format(ipart+1,totparts,tottime,tottime/float(ipart+1)*totparts))
 
-    ## \brief Returns source angle based on type of user choice
+    ## \brief Returns source position and angle determined/sampled based on user choice
     #
-    # \returns sampled source angle
-    def _setParticleSourceAngle(self):
-        if   self.sourceType=='boundary-isotropic': return np.sqrt( self.Rng.rand() )     #isotropic source at boundary
-        elif self.sourceType=='internal-isotropic': return 2.0*self.Rng.rand()-1.0        #internal source
-        elif self.sourceType=='beam'              : return self.sourceAngleOfIncidence    #beam source
+    # \returns x, mu
+    def _initializeParticle(self):
+        if   self.sourceLocationType=='left-boundary' : x = 0.0
+        elif self.sourceLocationType=='right-boundary': x = self.SlabLength
+        elif self.sourceLocationType=='internal'      : x = self.Rng.uniform( self.sourceLocationRange[0],self.sourceLocationRange[1] )
+
+        if   self.sourceAngleType=='boundary-isotropic': mu = np.sqrt( self.Rng.rand() ) #isotropic source at boundary
+        elif self.sourceAngleType=='internal-isotropic': mu = 2.0*self.Rng.rand()-1.0    #internal isotropic source
+        elif self.sourceAngleType=='beam'              : mu = self.sourceBeamAngle       #beam source
         
-    ## \brief initializes position of streaming particle
-    #
-    # \returns sets x
-    def _initializePosition(self):
-        if self.sourceType=='internal-isotropic': return self.Rng.uniform( self.sourceLocationRange[0],self.sourceLocationRange[1] )
-        else                                    : return 0.0
-        
+        return x, mu
+
     ## \brief Simulates one particle using slab-based Monte Carlo solver. Intent: private.
     #
     # Simulates one particle history using slab geometry defined by 'Slab' from 'OneDSlabpy.py'
     # and tallies transmittance, reflectance, and absorption.
     def _pushMCParticle(self):
-        mu   = self._setParticleSourceAngle()
-        x    = self._initializePosition()
+        x, mu = self._initializeParticle()
         iseg = int( np.digitize( x, self.Slab.matbound ) ) - 1
 
         flbreak = False
@@ -259,8 +264,7 @@ class MonteCarloParticleSolver(Tallies):
     # Simulates one particle history using geometry defined by a function which returns
     # necessary radiation transport quantities and tallies transmittance, reflectance, and absorption.
     def _pushWMCParticle(self):
-        mu = self._setParticleSourceAngle()
-        x  = self._initializePosition()
+        x, mu = self._initializeParticle()
 
         flbreak = False
         while True:

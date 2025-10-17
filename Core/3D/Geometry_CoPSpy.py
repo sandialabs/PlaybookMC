@@ -5,13 +5,15 @@ sys.path.append('/../../Classes/Tools')
 from ClassToolspy import ClassTools
 from MarkovianInputspy import MarkovianInputs
 from CPF_MarkovianAnalyticpy import CPF_MarkovianAnalytic
-from CPF_MarkovianIndependentContribspy import CPF_MarkovianIndependentContribs
+from CPF_MarkovianCombinationpy import CPF_MarkovianCombination
+from CPF_MultipleIndicatorCoKrigingpy import CPF_MultipleIndicatorCoKriging
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
 
 ## \brief Multi-D CoPS geometry class
 # \author Aaron Olson, aolson@sandia.gov, aaronjeffreyolson@gmail.com
+# \author Alec Shelley, ams01@stanford.edu
 #
 class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
     def __init__(self):
@@ -85,7 +87,7 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
         for imat in range(0,self.nummats):
             plt.scatter(x_mat[imat],y_mat[imat])
         plt.xlim( self.xbounds[0], self.xbounds[1]);  plt.ylim( self.ybounds[0], self.ybounds[1])
-        if self.flsaveplot == True: plt.savefig(''+str(self.geomtype)+'_'+str(self.Part.numDims)+'D_Case-name-_Part'+str(ipart+1)+'.png')
+        if self.flsaveplot == True: plt.savefig(''+str(self.GeomType)+'_'+str(self.Part.numDims)+'D_Case-name-_Part'+str(ipart+1)+'.png')
         if self.flshowplot == True: plt.show()
 
 
@@ -104,20 +106,20 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
 
 
 #########################################################################################################################################
-    ## \brief Sets method to choose governing points and conditional probability function evaluator
+    ## \brief Sets method for conditional probability evaluation
     #
-    # \param[in] conditionalProbEvaluator, str, 'MarkovianAnalytic' or 'MarkovianIndependentContribs'
-    # \returns sets self.selectGoverningPoints and self.CPF
+    # \param[in] conditionalProbEvaluator, str, 'MarkovianAnalytic', 'MarkovianCombination', or 'MultipleIndicatorCoKriging'
+    # \returns sets self.CPF
     def defineConditionalProbabilityEvaluator(self,conditionalProbEvaluator=None):
-        self.selectGoverningPoints = self.selectGoverningPointsPI
-        if   conditionalProbEvaluator=='MarkovianAnalytic'           : self.CPF = CPF_MarkovianAnalytic()
-        elif conditionalProbEvaluator=='MarkovianIndependentContribs': self.CPF = CPF_MarkovianIndependentContribs()
-        else : raise Exception("Please choose 'MarkovianAnalytic' or 'MarkovianIndependentContribs' for conditionalProbEvaluator")
+        if   conditionalProbEvaluator=='MarkovianAnalytic'         : self.CPF = CPF_MarkovianAnalytic()
+        elif conditionalProbEvaluator=='MarkovianCombination'      : self.CPF = CPF_MarkovianCombination()
+        elif conditionalProbEvaluator=='MultipleIndicatorCoKriging': self.CPF = CPF_MultipleIndicatorCoKriging()
+        else : raise Exception("Please choose 'MarkovianAnalytic' or 'MarkovianCombination' or 'MICK' for conditionalProbEvaluator")
 
     ## \brief Veneer to interface with method of the CPF class method of the same name
     # \returns passes params to method of the CPF class of the same name
     def defineMixingParams(self,*args):
-        self.CPF.defineMixingParams(args)
+        self.CPF.defineMixingParams(*args)
         self.prob = self.CPF.prob[:]
         self.lam  = self.CPF.lam[:]
 
@@ -141,14 +143,17 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
     # \param[in] maxNumPoints int, maximum number of points use to compute conditional probability function
     # \param[in] maxDistance float, maximum distance from new point existing point may be to contribute to prob func
     # \param[in] exlusionMultiplier float, exclusion angle defined using triangle with 'opposite' length of exMult*lam[m]
+    # \param[in] flRefillToMaxPoints bool, keep points that would otherwise be excluded to meet maxNumPoints if possible (can be useful when CPF evaluation has little to no error)
     # \returns sets these parameters as object attributes
-    def defineConditionalSamplingParameters(self,maxNumPoints=None,maxDistance=None,exclusionMultiplier=None):
+    def defineConditionalSamplingParameters(self,maxNumPoints=None,maxDistance=None,exclusionMultiplier=None,flRefillToMaxPoints=False):
         assert isinstance(maxNumPoints,int) and maxNumPoints>=0
         assert isinstance(maxDistance,float) and maxDistance>=0.0
         assert isinstance(exclusionMultiplier,float) and exclusionMultiplier>=0.0
+        assert isinstance(flRefillToMaxPoints,bool)
         self.maxNumPoints        = maxNumPoints
         self.maxDistance         = maxDistance
         self.exclusionMultiplier = exclusionMultiplier
+        self.flRefillToMaxPoints = flRefillToMaxPoints
 
     ## \brief User specified limited memory parameters
     #
@@ -177,36 +182,6 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
         self.recentMemory     = recentMemory
         self.amnesiaRadius    = amnesiaRadius
         self.flLongTermMemory = flLongTermMemory
-
-    ## \brief Choose Markovian or AM geometry and true 3D or 1D emulation to simulate with 3D CoPS
-    #
-    # For the AM CoPS geom type, mix all materials to be one atomically mixed material, set the number of
-    # conditional points to be zero, then let CoPS run.
-    # Algorithmically, this is different than classical AM, but mathematically it is equivalent.
-    # Alternative methods by which to get CoPS to give AM results are to set maxNumPoints to 1
-    # (so that conditional probability function evaluations only use one point--the new point)
-    # or to make sure no sampled points are saved to short- or long-term memory, for exmaple by 
-    # setting recentMemory to 0 and flLongTermMemory to False.
-    #
-    # \param[in] geomtype str, 'Markovian', 'AM'
-    # \returns sets self.geomtype
-    def defineCoPSGeometryType(self,geomtype):
-        assert geomtype=='Markovian' or geomtype=='AM'
-        self.geomtype = geomtype
-        #assert hasattr(self, 'lamc')
-        #if using atomic mix CoPS, create single material with infinite correlation length
-        if self.geomtype=='AM':
-            assert hasattr(self, 'maxNumPoints')
-            self.totxs   = [ np.sum( np.multiply( self.totxs  , self.prob ) ) ]
-            self.Majorant= self.totxs[0]
-            self.scatxs  = [ np.sum( np.multiply( self.scatxs , self.prob ) ) ]
-            self.absxs   = [ self.totxs[0] - self.scatxs[0] ]
-            self.scatrat = [ self.scatxs[0] / self.totxs[0] ]
-            self.nummats = 1
-            self.maxNumPoints = 0
-            self.lam     = [100000.0]
-            self.lamc    =  100000.0
-            self.prob    = [ 1.0 ]
 
     ## \brief Tests whether candidate points should be excluded based on governing points
     #
@@ -246,13 +221,24 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
     # point or exclude.
     #
     # \returns sets self.govpoints and self.govmatinds, governing points and their material indices
-    def selectGoverningPointsPI(self):
+    def selectGoverningPoints(self):
         #compute distance from new point to each pre-existing point in long-term and recent memory
         allpoints = np.asarray( self.LongTermPoints[:] + self.RecentPoints[:] )
         allmatinds=            self.LongTermMatInds[:] + self.RecentMatInds[:]
         distances =                                   np.power(np.subtract(allpoints[:,0],self.Part.x),2)
         distances =                np.add( distances, np.power(np.subtract(allpoints[:,1],self.Part.y),2) )
         distances = list( np.sqrt( np.add( distances, np.power(np.subtract(allpoints[:,2],self.Part.z),2) ) ) )
+
+        if self.flRefillToMaxPoints:
+            #if point refill option active and number of points <= maxNumPoints, use all points
+            if  len(distances)<=self.maxNumPoints:
+                self.govpoints  = [list(pt) for pt in allpoints]
+                self.govmatinds = allmatinds[:]
+                self.govdists   = distances[:]
+                if self.govdists: self.distNearestPoint = min(self.govdists)
+                return
+            #if point refill option active and number of points > maxNumPoints, create pristine copy of point distances for use in later refill operation
+            distances0 = distances[:]
 
         #search through all pre-existing points using exclusion rules to choose governing points
         self.govpoints = []; self.govmatinds = []; self.govdists = []
@@ -282,7 +268,21 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
             for ipt in range(0,len(distances)):
                 if distances[ipt]<np.inf:
                     if self.testForExclusion( allpoints[ipt][:],distances[ipt],exclusionAngle ): distances[ipt] = np.inf
-                
+    
+        #if point refill option active and current number of governing points < maxNumPoints, 'refill' by adding points back until maxNumPoints acquired
+        if self.flRefillToMaxPoints and len(self.govpoints)<self.maxNumPoints:
+            # find all not yet chosen
+            extras = [i for i in range(len(distances0))
+                        if list(allpoints[i]) not in self.govpoints]
+            # sort by distance (closest first)
+            extras.sort(key=lambda i: distances0[i])
+            # append just enough to hit the quota
+            for idx in extras[: self.maxNumPoints - len(self.govpoints)]:
+                self.govpoints.append(list(allpoints[idx]))
+                self.govmatinds.append(allmatinds[idx])
+                self.govdists.append(distances0[idx])
+
+
     ## \brief Select whether to collect and print points CoPS creates
     #
     # \param[in] flCollectPoints bool, default False, Collect geometry points?

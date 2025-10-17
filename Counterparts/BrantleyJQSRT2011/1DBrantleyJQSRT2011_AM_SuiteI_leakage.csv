@@ -1,0 +1,4 @@
+# BrantleyJQSRT2011 reports that AM results were computed using Gauss-Legendre quadrature of order N=64. The degree of error in these results does not appear to have been directly examined, though through solution of a single realization with a high quadrature order, it is likely small, yielding perhaps at least several and probably many digits of accuracy.  When the benchmark results used the same quadrature (but averaged over 10^5 ensemble realizations), answers agreed with previously published results to 2-3 digits, providing a lower bound on the expected accuracy of the AM results.,,,,
+,1a,1b,1c,2a,2b,2c,3a,3b,3c
+Refl,0.49564,0.01963,0.47819,0.49564,0.01963,0.47819,0.78629,0.00204,0.47819
+Trans,0.00474,1.00E-05,0.00386,0.00474,1.00E-05,0.00386,0.06677,1.00E-05,0.00386

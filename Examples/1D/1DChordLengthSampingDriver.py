@@ -26,7 +26,8 @@ print(''); print(case)
 
 #Setup transport
 SMCsolver = SpecialMonteCarloDrivers(numpartsample)
-SMCsolver.defineSource(sourceType='boundary-isotropic',sourceLocationRange=[0.0,0.0])
+SMCsolver.defineSourcePosition('left-boundary')
+SMCsolver.defineSourceAngle('boundary-isotropic')
 SMCsolver.initializeRandomNumberObject(flUseSeed=True, seed=1)
 SMCsolver.defineMarkovianGeometry(totxs=CaseInp.Sigt[:], lam=CaseInp.lam[:], slablength=10.0, scatxs=CaseInp.Sigs[:], NaryType='volume-fraction')
 if   CLSvariant == 'CLS' : SMCsolver.chooseCLSsolver(fl3DEmulation=False)
@@ -47,4 +48,4 @@ fmean,fdev,fmeanSEM,fdevSEM = SMCsolver.returnWholeDomainFluxMoments(flVerbose=T
 print()
 SMCsolver.returnRuntimeValues(flVerbose=True)
 
-SMCsolver.plotFlux(flMaterialDependent=True)
+SMCsolver.plotFlux(flMaterialDependent=True,flshow=True,flsave=False,fileprefix='CLSProb')

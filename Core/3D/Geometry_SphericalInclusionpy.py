@@ -621,24 +621,8 @@ class Geometry_SphericalInclusion(Geometry_Voxel):
         for imat in range(0,self.nummats):
             plt.scatter(x_mat[imat],y_mat[imat])
         plt.xlim( self.xbounds[0], self.xbounds[1]);  plt.ylim( self.ybounds[0], self.ybounds[1])
-        if self.flsaveplot == True: plt.savefig(''+str(self.geomtype)+'_'+str(self.Part.numDims)+'D_Case-name-_Part'+str(ipart+1)+'.png')
+        if self.flsaveplot == True: plt.savefig(''+str(self.GeomType)+'_'+str(self.Part.numDims)+'D_Case-name-_Part'+str(ipart+1)+'.png')
         if self.flshowplot == True: plt.show()
-
-    def solveMaterialTypeFractions(self,numbins,Rng,numSampPerBin):
-        assert isinstance(numbins,int) and numbins>0
-        assert isinstance(numSampPerBin,int) and numSampPerBin>0
-        self.MatFractions = np.zeros((self.nummats,numbins))
-        binsize = ( self.zbounds[1] - self.zbounds[0] ) / numbins
-        for ibin in range(0,numbins):
-            zmin = self.zbounds[0] + binsize *   ibin
-            zmax = self.zbounds[0] + binsize * ( ibin+1 )
-            for _ in range(0,numSampPerBin):
-                self.Part.x = Rng.uniform(self.xbounds[0],self.xbounds[1])
-                self.Part.y = Rng.uniform(self.ybounds[0],self.ybounds[1])
-                self.Part.z = Rng.uniform(     zmin      ,     zmax      )
-                self.samplePoint()
-                self.MatFractions[self.CurrentMatInd,ibin] += 1
-        self.MatFractions = np.divide(self.MatFractions,numSampPerBin)
 
     ## \brief Returns material at specified set of points
     #
