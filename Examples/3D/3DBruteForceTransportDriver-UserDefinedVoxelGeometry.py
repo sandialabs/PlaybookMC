@@ -31,7 +31,7 @@ Rng = RandomNumbers(flUseSeed=True,seed=11119,stridelen=None)
 #Setup multi-D particle object
 Part = Particle()
 Part.defineDimensionality(dimensionality='3D')
-Part.defineSourceAngle(sourgeAngleType='boundary-isotropic')
+Part.defineSourceAngle(sourceAngleType='boundary-isotropic')
 Part.defineSourcePosition(sourceLocationType='annulus',annulusCenter=[-0.0,-0.0,-GeomLengths[2]/2],annulusCDF=[0.0,0.15,0.15,1.0],annulusRadii=[1.0,1.0,4.5,4.5]) #Sample particle position from rings on negative z face
 Part.defineScatteringType(scatteringtype='isotropic-3Drod')
 Part.associateRng(Rng)

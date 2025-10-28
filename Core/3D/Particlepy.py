@@ -86,11 +86,11 @@ class Particle(object):
     #    flux field.
     # 'internal-isotropic' - Particles are distributed uniformly over all angles.
     #
-    # \param[in] sourgeAngleType str, 'beam', 'boundary-isotropic' or 'internal-isotropic'
-    # \returns initializes self.sourgeAngleType
-    def defineSourceAngle(self,sourgeAngleType=None):
-        assert sourgeAngleType=='beam' or sourgeAngleType=='boundary-isotropic' or sourgeAngleType=='internal-isotropic'
-        self.sourgeAngleType = sourgeAngleType
+    # \param[in] sourceAngleType str, 'beam', 'boundary-isotropic' or 'internal-isotropic'
+    # \returns initializes self.sourceAngleType
+    def defineSourceAngle(self,sourceAngleType=None):
+        assert sourceAngleType=='beam' or sourceAngleType=='boundary-isotropic' or sourceAngleType=='internal-isotropic'
+        self.sourceAngleType = sourceAngleType
 
     ## \brief Define particle scattering behavior
     #
@@ -145,13 +145,13 @@ class Particle(object):
             self.y = self.annulusCenter[1] + radius * np.sin(theta)
             self.z = self.annulusCenter[2]
 
-        if   self.sourgeAngleType=='beam'              :
+        if   self.sourceAngleType=='beam'              :
             self.mu  = 1.0
             self.phi = 0.0
-        elif self.sourgeAngleType=='boundary-isotropic':
+        elif self.sourceAngleType=='boundary-isotropic':
             self.mu  = np.sqrt( self.Rng.rand() )
             self.phi = 2.0 * np.pi * self.Rng.rand()
-        elif self.sourgeAngleType=='internal-isotropic'         :
+        elif self.sourceAngleType=='internal-isotropic'         :
             self.mu  = 2.0 * self.Rng.rand()-1.0
             self.phi = 2.0 * np.pi * self.Rng.rand()
         self._set_uvw()

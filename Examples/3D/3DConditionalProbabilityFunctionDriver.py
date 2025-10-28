@@ -26,7 +26,7 @@ Mark.solveNaryMarkovianParamsBasedOnProbAndCorrLength(lamc=1.0,prob=[0.1,0.4,0.5
 
 #Set up CPF evaluators
 if flCPF_Analytic: #Analytic CPF
-    CPF_Ana = CPF_MarkovianAnalytic()
+    CPF_Ana = CPF_MarkovianAnalytic(flSolveDistribution=True)
     CPF_Ana.defineMixingParams(Mark.lam)
 if flCPF_IndContrib: #Combination CPF
     CPF_Ind = CPF_MarkovianCombination()

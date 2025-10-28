@@ -108,13 +108,14 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
 #########################################################################################################################################
     ## \brief Sets method for conditional probability evaluation
     #
-    # \param[in] conditionalProbEvaluator, str, 'MarkovianAnalytic', 'MarkovianCombination', or 'MultipleIndicatorCoKriging'
+    # \param[in] conditionalProbEvaluator, str, 'MarkovianAnalytic-Distrib', 'MarkovianAnalytic-Sample', 'MarkovianCombination', or 'MultipleIndicatorCoKriging'
     # \returns sets self.CPF
     def defineConditionalProbabilityEvaluator(self,conditionalProbEvaluator=None):
-        if   conditionalProbEvaluator=='MarkovianAnalytic'         : self.CPF = CPF_MarkovianAnalytic()
+        if   conditionalProbEvaluator=='MarkovianAnalytic-Distrib' : self.CPF = CPF_MarkovianAnalytic(flSolveDistribution=True)
+        elif conditionalProbEvaluator=='MarkovianAnalytic-Sample'  : self.CPF = CPF_MarkovianAnalytic(flSolveDistribution=False)
         elif conditionalProbEvaluator=='MarkovianCombination'      : self.CPF = CPF_MarkovianCombination()
         elif conditionalProbEvaluator=='MultipleIndicatorCoKriging': self.CPF = CPF_MultipleIndicatorCoKriging()
-        else : raise Exception("Please choose 'MarkovianAnalytic' or 'MarkovianCombination' or 'MICK' for conditionalProbEvaluator")
+        else : raise Exception("Please choose 'MarkovianAnalytic-Distrib', 'MarkovianAnalytic-Sample', 'MarkovianCombination', or 'MICK' for conditionalProbEvaluator")
 
     ## \brief Veneer to interface with method of the CPF class method of the same name
     # \returns passes params to method of the CPF class of the same name
@@ -131,11 +132,11 @@ class Geometry_CoPS(Geometry_Base,ClassTools,MarkovianInputs):
     # \returns sets self.condprob list of floats, probabilities of selecting each material type
     def solveConditionalProbabilities(self):
         #If need to, select governing points
-        if len(self.LongTermPoints)+len(self.RecentPoints)==0 or self.maxNumPoints==0: self.condprobs = self.prob[:]; return                                                                                          #If no points defined yet or user chose not to depend on points, use material abundances
-        else                                                                         : self.selectGoverningPoints()                                                                                                   #Else use the downselection scheme to select the governing points
+        if len(self.LongTermPoints)+len(self.RecentPoints)==0 or self.maxNumPoints==0: self.condprobs = self.prob[:]; return                                                                                                   #If no points defined yet or user chose not to depend on points, use material abundances
+        else                                                                         : self.selectGoverningPoints()                                                                                                            #Else use the downselection scheme to select the governing points
         #Use governing points to evaluate conditional probabilities
-        if len(self.govpoints)==0                                                    : self.condprobs = self.prob[:]; return                                                                                          #If no points are governing points (i.e., all points beyond user-defined maxiumum distance), use material abundances
-        else                                                                         : self.condprobs = self.CPF.returnConditionalProbabilities([self.Part.x,self.Part.y,self.Part.z],self.govpoints,self.govmatinds) #Else use the selected governing points to compute conditional probabilities
+        if len(self.govpoints)==0                                                    : self.condprobs = self.prob[:]; return                                                                                                   #If no points are governing points (i.e., all points beyond user-defined maxiumum distance), use material abundances
+        else                                                                         : self.condprobs = self.CPF.returnConditionalProbabilities([self.Part.x,self.Part.y,self.Part.z],self.govpoints,self.govmatinds,self.Rng) #Else use the selected governing points to compute conditional probabilities
 #########################################################################################################################################
 
     ## \brief User specifies conditional sampling parameters

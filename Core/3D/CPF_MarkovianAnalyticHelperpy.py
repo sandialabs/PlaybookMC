@@ -655,6 +655,62 @@ def color_distribution(points, colors, color_dist):
     return ret
 
 
+def color_sample(points, colors, color_dist, Rng, max_attempts=10000):
+    """Samples the color distribution for points[-1] by sampling each single-cut event.
+
+    points: np.array, shape (n,d). points[:-1] are colored, points[-1] is the query point
+    colors: tuple of ints, shape (n-1). Colors of points[:-1]
+    color_dist: tuple, volume fractions of the colors
+    Rng: PlaybookMC random number object
+    max_attempts: how many times to resample before returning the volume fractions
+
+    returns: np.array, a probability vector over colors for the final point
+             (one-hot if connected, prior if isolated)
+    """
+    n = len(points)
+    rates = slash_rates(points)  # dict: subset (tuple of indices) -> rate
+    partitions = list(rates.keys())  # the single-cut events
+    all_connectivity = generate_all_connectivity_tuples(n)
+    allowed_partitions = allowed_tuples_colors(all_connectivity, colors, last_color_unknown=True)
+
+    # Precompute probabilities that each cut occurs 
+    p_occurs = {part: 1.0 - np.exp(-rates[part]) for part in partitions}
+
+    for _ in range(max_attempts):
+        # Sample truth values for each cut independently
+        true_cuts = tuple(part for part in partitions if Rng.rand() < p_occurs[part])
+
+        # Build connectivity from the active cuts
+        conn = graph_cutter(n, true_cuts)
+
+        # Check color-compatibility constraint
+        if conn not in allowed_partitions:
+            continue
+
+        # Find the component containing the query point (index n-1)
+        comp = next(component for component in conn if (n - 1) in component)
+
+        # If isolated, return prior
+        if len(comp) == 1:
+            return np.array(color_dist, dtype=float)
+
+        # Otherwise deterministically take the connected neighbor's color
+        # (any known point in the same component determines the color)
+        for i in comp:
+            if i != (n - 1):
+                c = colors[i]
+                out = np.zeros(len(color_dist), dtype=float)
+                out[c] = 1.0
+                return out
+
+        # Fallback (shouldn't happen): treat as isolated
+        return np.array(color_dist, dtype=float)
+
+    # If we failed to draw an allowed connectivity after many attempts, return prior
+    # (You could alternatively call color_distribution(...) here.)
+    return np.array(color_dist, dtype=float)
+
+
 if __name__ == "__main__":
     import doctest
     doctest.testmod()

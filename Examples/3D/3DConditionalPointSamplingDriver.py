@@ -37,15 +37,15 @@ numpartupdat  = 1000
 numpartsample = 2   #with only short-term memory, batch size; with long-term memory, cohort size
 numpartitions = 5   #number of partitions of samples - used to provide r.v. statistical precision
 CoPS_Memory   = 'Recent-Memory'     #'Unconditional','Recent-Memory','Amnesia-Radius','Hybrid-Memory','Full-Memory'; Choose prepackaged CoPS memory scheme
-CoPS_CPF      = 'MarkovianAnalytic' #'MarkovianAnalytic','MarkovianCombination','MICK-Analytic','MICK-Numeric'; Choose CoPS conditional probability function (CPF)
+CoPS_CPF      = 'MarkovianAnalytic-Sample' #'MarkovianAnalytic-Distrib','MarkovianAnalytic-Sample','MarkovianCombination','MICK-Analytic','MICK-Numeric'; Choose CoPS conditional probability function (CPF)
 Geomsize      = 10.0  #Edge length of cubic 3D geometry
 case          = '3a'  #'1a','1b','1c','2a','2b','2c','3a','3b','3c'; Problem from Adams, Larsen, and Pomraning (ALP) benchmark set
 numtalbins    = 8
 
 if CoPS_Memory not in {'Unconditional','Recent-Memory','Amnesia-Radius','Hybrid-Memory','Full-Memory'}:
     raise Exception("Please choose 'Unconditional','Recent-Memory','Amnesia-Radius','Hybrid-Memory', or 'Full-Memory' for CoPS_Memory")
-if CoPS_CPF not in {'MarkovianAnalytic','MarkovianCombination','MICK-Analytic','MICK-Numeric'}:
-    raise Exception("Please choose 'MarkovianAnalytic','MarkovianCombination','MICK-Analytic','MICK-Numeric' for CoPS_CPF")
+if CoPS_CPF not in {'MarkovianAnalytic-Distrib','MarkovianAnalytic-Sample','MarkovianCombination','MICK-Analytic','MICK-Numeric'}:
+    raise Exception("Please choose 'MarkovianAnalytic-Distrib','MarkovianAnalytic-Sample','MarkovianCombination','MICK-Analytic', or 'MICK-Numeric' for CoPS_CPF")
 
 #Load problem parameters
 CaseInp = MarkovianInputs()
@@ -58,7 +58,7 @@ Rng = RandomNumbers(flUseSeed=True,seed=54321,stridelen=None)
 #Setup multi-D particle object
 Part = Particle()
 Part.defineDimensionality(dimensionality='3D')
-Part.defineSourceAngle(sourgeAngleType='boundary-isotropic')
+Part.defineSourceAngle(sourceAngleType='boundary-isotropic')
 Part.defineSourcePosition(sourceLocationType='cuboid',xrange=[-Geomsize/2,Geomsize/2],yrange=[-Geomsize/2,Geomsize/2],zrange=[-Geomsize/2,-Geomsize/2]) #Sample particle position on negative z face
 Part.defineScatteringType(scatteringtype='isotropic')
 Part.associateRng(Rng)
@@ -80,26 +80,28 @@ elif CoPS_Memory=='Full-Memory'   : recentmemory = 0; fllongtermmemory = True ; 
 CoPSGeom.defineLimitedMemoryParameters(recentMemory=recentmemory, amnesiaRadius=amnesiaradius, flLongTermMemory=fllongtermmemory)
 
 #Select CoPS point-downselection options
-if   CoPS_Memory=='Unconditional'                    : maxnumpoints = 0; exclusionMultiplier = 0.0; flRefillToMaxPoints = False
-elif CoPS_Memory=='Recent-Memory'                    : maxnumpoints = 1; exclusionMultiplier = 0.0; flRefillToMaxPoints = False
+if   CoPS_Memory=='Unconditional'           : maxnumpoints = 0; exclusionMultiplier = 0.0; flRefillToMaxPoints = False
+elif CoPS_Memory=='Recent-Memory'           : maxnumpoints = 1; exclusionMultiplier = 0.0; flRefillToMaxPoints = False
 elif CoPS_Memory in {'Amnesia-Radius','Hybrid-Memory','Full-Memory'}:
-    if   CoPS_CPF=='MarkovianAnalytic'               : maxnumpoints = 3; exclusionMultiplier = 0.0; flRefillToMaxPoints = True
-    elif CoPS_CPF=='MarkovianCombination'            : maxnumpoints = 3; exclusionMultiplier = 1.0; flRefillToMaxPoints = False
-    elif CoPS_CPF in {'MICK-Analytic','MICK-Numeric'}: maxnumpoints = 3; exclusionMultiplier = 0.0; flRefillToMaxPoints = True
+    if   'MarkovianAnalytic'    in CoPS_CPF : maxnumpoints = 3; exclusionMultiplier = 0.0; flRefillToMaxPoints = True
+    elif 'MarkovianCombination' in CoPS_CPF : maxnumpoints = 3; exclusionMultiplier = 1.0; flRefillToMaxPoints = False
+    elif 'MICK'                 in CoPS_CPF : maxnumpoints = 3; exclusionMultiplier = 0.0; flRefillToMaxPoints = True
 CoPSGeom.defineConditionalSamplingParameters(maxNumPoints=maxnumpoints,maxDistance=Geomsize,exclusionMultiplier=exclusionMultiplier,flRefillToMaxPoints=flRefillToMaxPoints)
 
 #Select CoPS CPF type
-if   CoPS_CPF=='MarkovianAnalytic'               : conditionalProbEvaluator='MarkovianAnalytic'
+if   CoPS_CPF=='MarkovianAnalytic-Distrib'       : conditionalProbEvaluator='MarkovianAnalytic-Distrib'
+elif CoPS_CPF=='MarkovianAnalytic-Sample'        : conditionalProbEvaluator='MarkovianAnalytic-Sample'
 elif CoPS_CPF=='MarkovianCombination'            : conditionalProbEvaluator='MarkovianCombination'
 elif CoPS_CPF in {'MICK-Analytic','MICK-Numeric'}: conditionalProbEvaluator='MultipleIndicatorCoKriging'
 CoPSGeom.defineConditionalProbabilityEvaluator(conditionalProbEvaluator=conditionalProbEvaluator)
 
 #Define mixing parameters (based on CoPS CPF type chosen)
-if   CoPS_CPF in {'MarkovianAnalytic','MarkovianCombination'}: CoPSGeom.defineMixingParams(CaseInp.lam[:])
-elif CoPS_CPF=='MICK-Analytic'                                       :
+if   CoPS_CPF in {'MarkovianAnalytic-Distrib','MarkovianAnalytic-Sample','MarkovianCombination'}:
+    CoPSGeom.defineMixingParams(CaseInp.lam[:])
+elif CoPS_CPF=='MICK-Analytic'                                                                  :
     CaseInp.generateAnalyticalS2CallableArray()
     CoPSGeom.defineMixingParams(CaseInp.AnalyticalS2CallableArray, CaseInp.prob) 
-elif CoPS_CPF=='MICK-Numeric':
+elif CoPS_CPF=='MICK-Numeric'                                                                   :
     prefix = "CoPSDriverExample_ALP_"+case #File name prefix for geometry and statistics files for numeric MICK
     try: #Try to read abundances and S2s from files
         Stats = StatMetrics()
